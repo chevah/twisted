@@ -115,7 +115,11 @@ class _SocketCloser(object):
         # we set FD_CLOEXEC now, which will ensure this is the only process
         # holding the FD, thus ensuring close() really will shutdown the TCP
         # socket. However, do it anyways, just to be safe.
-        skt = self.socket
+        try:
+            skt = self.socket
+        except AttributeError:
+            return
+
         try:
             if orderly:
                 if self._shouldShutdown:

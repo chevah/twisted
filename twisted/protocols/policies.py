@@ -715,7 +715,8 @@ class TimeoutMixin:
 
         if self.__timeoutCall is not None:
             if period is None:
-                self.__timeoutCall.cancel()
+                if not self.__timeoutCall.cancelled:
+                    self.__timeoutCall.cancel()
                 self.__timeoutCall = None
             else:
                 self.__timeoutCall.reset(period)

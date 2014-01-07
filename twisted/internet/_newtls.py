@@ -13,7 +13,7 @@ implementation and will be used whenever pyOpenSSL 0.10 or newer is installed
 from __future__ import division, absolute_import
 
 from zope.interface import implementer
-from zope.interface import directlyProvides
+from zope.interface import directlyProvides, noLongerProvides
 
 from twisted.internet.interfaces import ITLSTransport, ISSLTransport
 from twisted.internet.abstract import FileDescriptor
@@ -138,6 +138,7 @@ def startTLS(transport, contextFactory, normal, bypass):
 
     tlsFactory = TLSMemoryBIOFactory(contextFactory, client, None)
     tlsProtocol = TLSMemoryBIOProtocol(tlsFactory, transport.protocol, False)
+    transport._clean_protocol = transport.protocol
     transport.protocol = tlsProtocol
 
     transport.getHandle = tlsProtocol.getHandle
@@ -177,6 +178,33 @@ class ConnectionMixin(object):
         @see: L{ITLSTransport.startTLS}
         """
         startTLS(self, ctx, normal, FileDescriptor)
+
+    def stopTLS(self):
+        """
+        Reverts the changes done by C{startTLS}.
+        """
+        # If we have a producer, unregister it, and then re-register it below
+        # once we've switched off the TLS mode, so it gets hooked up correctly:
+        producer, streaming = None, None
+        if self.producer is not None:
+            producer, streaming = self.producer, self.streamingProducer
+            self.unregisterProducer()
+
+        self.protocol._tlsConnection.shutdown()
+        self.protocol._flushSendBIO()
+
+        self.protocol = self._clean_protocol
+
+        del(self.getHandle)
+        del(self.getPeerCertificate)
+
+        # Mark the transport as insecure.
+        noLongerProvides(self, ISSLTransport)
+        self.TLS = False
+
+        # Restore producer if necessary:
+        if producer:
+            self.registerProducer(producer, streaming)
 
 
     def write(self, bytes):
