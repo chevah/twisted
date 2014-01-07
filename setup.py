@@ -58,7 +58,7 @@ def main(args):
     setup_args = dict(
         # metadata
         name="Twisted",
-        version=copyright.version,
+        version=copyright.version + "-chevah3",
         description="An asynchronous networking framework written in Python",
         author="Twisted Matrix Laboratories",
         author_email="twisted-python@twistedmatrix.com",
@@ -71,7 +71,7 @@ An extensible framework for Python programming, with special focus
 on event-based network programming and multiprotocol integration.
 """,
         packages = getPackages('twisted'),
-        conditionalExtensions = getExtensions(),
+        #conditionalExtensions = getExtensions(),
         scripts = scripts,
         data_files=getDataFiles('twisted'),
         classifiers=[
