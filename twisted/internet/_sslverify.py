@@ -9,11 +9,16 @@ import itertools
 from hashlib import md5
 
 from OpenSSL import SSL, crypto
+from zope.interface import implementer
 
-from twisted.python.compat import nativeString, networkString
-from twisted.python import _reflectpy3 as reflect, util
 from twisted.internet.defer import Deferred
 from twisted.internet.error import VerifyError, CertificateError
+from twisted.internet.interfaces import IAcceptableCiphers, ICipher
+from twisted.python import _reflectpy3 as reflect, util
+from twisted.python.compat import nativeString, networkString, unicode
+from twisted.python.util import FancyEqMixin
+
+
 
 def _sessionCounter(counter=itertools.count()):
     """
@@ -627,15 +632,21 @@ class OpenSSLCertificateOptions(object):
     @ivar _options: Any option flags to set on the L{OpenSSL.SSL.Context}
         object that will be created.
     @type _options: L{int}
+
+    @ivar _cipherString: An OpenSSL-specific cipher string.
+    @type _cipherString: L{unicode}
     """
 
     # Factory for creating contexts.  Configurable for testability.
     _contextFactory = SSL.Context
     _context = None
-    # Older versions of PyOpenSSL didn't provide OP_ALL.  Fudge it here, just in case.
+    # Some option constants may not be exposed by PyOpenSSL yet.
     _OP_ALL = getattr(SSL, 'OP_ALL', 0x0000FFFF)
-    # OP_NO_TICKET is not (yet) exposed by PyOpenSSL
-    _OP_NO_TICKET = 0x00004000
+    _OP_NO_TICKET = getattr(SSL, 'OP_NO_TICKET', 0x00004000)
+    _OP_NO_COMPRESSION = getattr(SSL, 'OP_NO_COMPRESSION', 0x00020000)
+    _OP_CIPHER_SERVER_PREFERENCE = getattr(SSL, 'OP_CIPHER_SERVER_PREFERENCE ',
+                                           0x00400000)
+    _OP_SINGLE_ECDH_USE = getattr(SSL, 'OP_SINGLE_ECDH_USE ', 0x00080000)
 
     def __init__(self,
                  privateKey=None,
@@ -650,7 +661,9 @@ class OpenSSLCertificateOptions(object):
                  enableSessions=True,
                  fixBrokenPeers=False,
                  enableSessionTickets=False,
-                 extraCertChain=None):
+                 extraCertChain=None,
+                 acceptableCiphers=None,
+                 dhParameters=None):
         """
         Create an OpenSSL context SSL connection context factory.
 
@@ -683,8 +696,9 @@ class OpenSSLCertificateOptions(object):
         @param verifyOnce: If True, do not re-verify the certificate
         on session resumption.
 
-        @param enableSingleUseKeys: If True, generate a new key whenever
-        ephemeral DH parameters are used to prevent small subgroup attacks.
+        @param enableSingleUseKeys: If L{True}, generate a new key whenever
+            ephemeral DH and ECDH parameters are used to prevent small
+            subgroup attacks and to ensure perfect forward secrecy.
 
         @param enableSessions: If True, set a session ID on each context.  This
         allows a shortened handshake to be used when a known client reconnects.
@@ -705,8 +719,29 @@ class OpenSSLCertificateOptions(object):
             verification chain if the certificate authority that signed your
             C{certificate} isn't widely supported.  Do I{not} add
             C{certificate} to it.
-
         @type extraCertChain: C{list} of L{OpenSSL.crypto.X509}
+
+        @param acceptableCiphers: Ciphers that are acceptable for connections.
+            Uses a secure default if left L{None}.
+        @type acceptableCiphers: L{IAcceptableCiphers}
+
+        @param dhParameters: Key generation parameters that are required for
+            Diffie-Hellman key exchange.  If this argument is left L{None},
+            C{EDH} ciphers are I{disabled} regardless of C{acceptableCiphers}.
+        @type dhParameters: L{DiffieHellmanParameters
+            <twisted.internet.ssl.DiffieHellmanParameters>}
+
+        @raise ValueError: when C{privateKey} or C{certificate} are set
+            without setting the respective other.
+
+        @raise ValueError: when C{verify} is L{True} but C{caCerts} doesn't
+            specify any CA certificates.
+
+        @raise ValueError: when C{extraCertChain} is passed without specifying
+            C{privateKey} or C{certificate}.
+
+        @raise ValueError: when C{acceptableCiphers} doesn't yield any usable
+            ciphers for the current platform.
         """
 
         if (privateKey is None) != (certificate is None):
@@ -715,9 +750,13 @@ class OpenSSLCertificateOptions(object):
         self.privateKey = privateKey
         self.certificate = certificate
 
-        # Disallow insecure SSLv2. Only has an effect when SSLv23_METHOD is
-        # used.
-        self._options = SSL.OP_NO_SSLv2
+        # Set basic security options: disallow insecure SSLv2, disallow TLS
+        # compression to avoid CRIME attack, make the server choose the
+        # ciphers.
+        self._options = (
+            SSL.OP_NO_SSLv2 | self._OP_NO_COMPRESSION |
+            self._OP_CIPHER_SERVER_PREFERENCE
+        )
 
         if method is None:
             # If no method is specified set things up so that TLSv1.0 and newer
@@ -745,9 +784,31 @@ class OpenSSLCertificateOptions(object):
         self.requireCertificate = requireCertificate
         self.verifyOnce = verifyOnce
         self.enableSingleUseKeys = enableSingleUseKeys
+        if enableSingleUseKeys:
+            self._options |= SSL.OP_SINGLE_DH_USE | self._OP_SINGLE_ECDH_USE
         self.enableSessions = enableSessions
         self.fixBrokenPeers = fixBrokenPeers
+        if fixBrokenPeers:
+            self._options |= self._OP_ALL
         self.enableSessionTickets = enableSessionTickets
+        if not enableSessionTickets:
+            self._options |= self._OP_NO_TICKET
+        self.dhParameters = dhParameters
+
+        if acceptableCiphers is None:
+            acceptableCiphers = defaultCiphers
+        # This needs to run when method and _options are finalized.
+        self._cipherString = u':'.join(
+            c.fullName
+            for c in acceptableCiphers.selectCiphers(
+                _expandCipherString(u'ALL', self.method, self._options)
+            )
+        )
+        if self._cipherString == u'':
+            raise ValueError(
+                'Supplied IAcceptableCiphers yielded no usable ciphers '
+                'on this platform.'
+            )
 
 
     def __getstate__(self):
@@ -764,7 +825,8 @@ class OpenSSLCertificateOptions(object):
 
 
     def getContext(self):
-        """Return a SSL.Context object.
+        """
+        Return an L{OpenSSL.SSL.Context} object.
         """
         if self._context is None:
             self._context = self._makeContext()
@@ -805,19 +867,166 @@ class OpenSSLCertificateOptions(object):
         if self.verifyDepth is not None:
             ctx.set_verify_depth(self.verifyDepth)
 
-        if self.enableSingleUseKeys:
-            ctx.set_options(SSL.OP_SINGLE_DH_USE)
-
-        if self.fixBrokenPeers:
-            ctx.set_options(self._OP_ALL)
-
         if self.enableSessions:
             name = "%s-%d" % (reflect.qual(self.__class__), _sessionCounter())
             sessionName = md5(networkString(name)).hexdigest()
 
             ctx.set_session_id(sessionName)
 
-        if not self.enableSessionTickets:
-            ctx.set_options(self._OP_NO_TICKET)
+        if self.dhParameters:
+            ctx.load_tmp_dh(self.dhParameters._dhFile.path)
+        ctx.set_cipher_list(nativeString(self._cipherString))
 
         return ctx
+
+
+
+@implementer(ICipher)
+class OpenSSLCipher(FancyEqMixin, object):
+    """
+    A representation of an OpenSSL cipher.
+    """
+    compareAttributes = ('fullName',)
+
+    def __init__(self, fullName):
+        """
+        @param fullName: The full name of the cipher. For example
+            C{u"ECDHE-RSA-AES256-GCM-SHA384"}.
+        @type fullName: L{unicode}
+        """
+        self.fullName = fullName
+
+
+    def __repr__(self):
+        """
+        A runnable representation of the cipher.
+        """
+        return 'OpenSSLCipher({0!r})'.format(self.fullName)
+
+
+
+def _expandCipherString(cipherString, method, options):
+    """
+    Expand C{cipherString} according to C{method} and C{options} to a list
+    of explicit ciphers that are supported by the current platform.
+
+    @param cipherString: An OpenSSL cipher string to expand.
+    @type cipherString: L{unicode}
+
+    @param method: An OpenSSL method like C{SSL.TLSv1_METHOD} used for
+        determining the effective ciphers.
+
+    @param options: OpenSSL options like C{SSL.OP_NO_SSLv3} ORed together.
+    @type options: L{int}
+
+    @return: The effective list of explicit ciphers that results from the
+        arguments on the current platform.
+    @rtype: L{list} of L{ICipher}
+    """
+    ctx = SSL.Context(method)
+    ctx.set_options(options)
+    try:
+        ctx.set_cipher_list(nativeString(cipherString))
+    except SSL.Error as e:
+        if e.args[0][0][2] == 'no cipher match':
+            return []
+        else:
+            raise
+    conn = SSL.Connection(ctx, None)
+    ciphers = conn.get_cipher_list()
+    if isinstance(ciphers[0], unicode):
+        return [OpenSSLCipher(cipher) for cipher in ciphers]
+    else:
+        return [OpenSSLCipher(cipher.decode('ascii')) for cipher in ciphers]
+
+
+
+@implementer(IAcceptableCiphers)
+class OpenSSLAcceptableCiphers(object):
+    """
+    A representation of ciphers that are acceptable for TLS connections.
+    """
+    def __init__(self, ciphers):
+        self._ciphers = ciphers
+
+    def selectCiphers(self, availableCiphers):
+        return [cipher
+                for cipher in self._ciphers
+                if cipher in availableCiphers]
+
+
+    @classmethod
+    def fromOpenSSLCipherString(cls, cipherString):
+        """
+        Create a new instance using an OpenSSL cipher string.
+
+        @param cipherString: An OpenSSL cipher string that describes what
+            cipher suites are acceptable.
+            See the documentation of U{OpenSSL
+            <http://www.openssl.org/docs/apps/ciphers.html#CIPHER_STRINGS>} or
+            U{Apache
+            <http://httpd.apache.org/docs/2.4/mod/mod_ssl.html#sslciphersuite>}
+            for details.
+        @type cipherString: L{unicode}
+
+        @return: Instance representing C{cipherString}.
+        @rtype: L{twisted.internet.ssl.AcceptableCiphers}
+        """
+        return cls(_expandCipherString(
+            nativeString(cipherString),
+            SSL.SSLv23_METHOD, SSL.OP_NO_SSLv2 | SSL.OP_NO_SSLv3)
+        )
+
+
+# A secure default.
+# Sources for more information on TLS ciphers:
+#
+# - https://wiki.mozilla.org/Security/Server_Side_TLS
+# - https://www.ssllabs.com/projects/best-practices/index.html
+# - https://hynek.me/articles/hardening-your-web-servers-ssl-ciphers/
+#
+# The general intent is:
+# - Prefer cipher suites that offer perfect forward secrecy (DHE/ECDHE),
+# - prefer ECDHE over DHE for better performance,
+# - prefer any AES-GCM over any AES-CBC for better performance and security,
+# - use 3DES as fallback which is secure but slow,
+# - disable NULL authentication, MD5 MACs and DSS for security reasons.
+#
+defaultCiphers = OpenSSLAcceptableCiphers.fromOpenSSLCipherString(
+    "ECDH+AESGCM:DH+AESGCM:ECDH+AES256:DH+AES256:ECDH+AES128:"
+    "DH+AES:ECDH+3DES:DH+3DES:RSA+AESGCM:RSA+AES:RSA+3DES:!aNULL:!MD5:!DSS"
+)
+
+
+
+class OpenSSLDiffieHellmanParameters(object):
+    """
+    A representation of key generation parameters that are required for
+    Diffie-Hellman key exchange.
+    """
+    def __init__(self, parameters):
+        self._dhFile = parameters
+
+
+    @classmethod
+    def fromFile(cls, filePath):
+        """
+        Load parameters from a file.
+
+        Such a file can be generated using the C{openssl} command line tool as
+        following:
+
+        C{openssl dhparam -out dh_param_1024.pem -2 1024}
+
+        Please refer to U{OpenSSL's C{dhparam} documentation
+        <http://www.openssl.org/docs/apps/dhparam.html>} for further details.
+
+        @param filePath: A file containing parameters for Diffie-Hellman key
+            exchange.
+        @type filePath: L{FilePath <twisted.python.filepath.FilePath>}
+
+        @return: A instance that loads its parameters from C{filePath}.
+        @rtype: L{DiffieHellmanParameters
+            <twisted.internet.ssl.DiffieHellmanParameters>}
+        """
+        return cls(filePath)

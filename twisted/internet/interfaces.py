@@ -650,7 +650,9 @@ class IReactorTCP(Interface):
         """
         Connect a TCP client.
 
-        @param host: a host name
+        @param host: A hostname or an IPv4 or IPv6 address literal.
+
+        @type host: L{bytes}
 
         @param port: a port number
 
@@ -2139,8 +2141,11 @@ class ITLSTransport(ITCPTransport):
         """
         Initiate TLS negotiation.
 
-        @param contextFactory: A context factory (see L{ssl.py<twisted.internet.ssl>})
+        @param contextFactory: A context factory
+            (see L{ssl.py<twisted.internet.ssl>})
         """
+
+
 
 class ISSLTransport(ITCPTransport):
     """
@@ -2151,6 +2156,36 @@ class ISSLTransport(ITCPTransport):
         """
         Return an object with the peer's certificate info.
         """
+
+
+
+class ICipher(Interface):
+    """
+    A TLS cipher.
+    """
+    fullName = Attribute(
+        "The fully qualified name of the cipher in L{unicode}."
+    )
+
+
+
+class IAcceptableCiphers(Interface):
+    """
+    A list of acceptable ciphers for a TLS context.
+    """
+    def selectCiphers(availableCiphers):
+        """
+        Choose which ciphers to allow to be negotiated on a TLS connection.
+
+        @param availableCiphers: A L{list} of L{ICipher} which gives the names
+            of all ciphers supported by the TLS implementation in use.
+
+        @return: A L{list} of L{ICipher} which represents the ciphers
+            which may be negotiated on the TLS connection.  The result is
+            ordered by preference with more preferred ciphers appearing
+            earlier.
+        """
+
 
 
 class IProcessTransport(ITransport):
