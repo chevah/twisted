@@ -21,6 +21,7 @@ from twisted.python.compat import nativeString, unicode
 from twisted.python._reflectpy3 import prefixedMethodNames
 from twisted.python.components import proxyForInterface
 
+from twisted.web import http
 from twisted.web._responses import FORBIDDEN, NOT_FOUND
 from twisted.web.error import UnsupportedMethod
 
@@ -84,6 +85,22 @@ class IResource(Interface):
 
         @raise twisted.web.error.UnsupportedMethod: If the HTTP verb
             requested is not supported by this resource.
+        """
+
+
+class IEarlyHeadersResource(IResource):
+    """
+    A resource which gets access to headers before receiving the body.
+    """
+
+    def headersReceived(request):
+        """
+        Called by the request when headers were received.
+
+        @return: Either C{http.CONTINUE} to indicate that request can
+            continue to process the body, or any other http code
+            to stop receiving the body. Can also return a deferred which
+            should return a similar value.
         """
 
 
@@ -259,6 +276,20 @@ class Resource:
         """
         return self.render_GET(request)
 
+
+@implementer(IEarlyHeadersResource)
+class EarlyHeadersResource(Resource, object):
+    """
+    See: L{twisted.web.resource.IEarlyHeadersResource}
+    """
+
+    def headersReceived(self, request):
+        """
+        It always accepts the request.
+
+        Overwrite it for custom behaviour.
+        """
+        return http.CONTINUE
 
 
 def _computeAllowedMethods(resource):

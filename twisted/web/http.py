@@ -1710,6 +1710,20 @@ class HTTPChannel(basic.LineReceiver, policies.TimeoutMixin):
 
 
     def allContentReceived(self):
+        """
+        Called when full request content was received.
+        """
+        # FIXME:XXX:
+        # I have no idea why we need the self.requests list.
+        #
+        # The request can finish and have a response before receiving full
+        # content, so any further processing of the request is stopped.
+        #
+        # Maybe this check can be moved outside of this method so that
+        # we really call this method only when we got the body.
+        if not self.requests:
+            return
+
         command = self._command
         path = self._path
         version = self._version
@@ -1740,16 +1754,12 @@ class HTTPChannel(basic.LineReceiver, policies.TimeoutMixin):
 
 
     def allHeadersReceived(self):
+        """
+        Called when all request headers were received.
+        """
         req = self.requests[-1]
-        req.parseCookies()
         self.persistent = self.checkPersistence(req, self._version)
-        req.gotLength(self.length)
-        # Handle 'Expect: 100-continue' with automated 100 response code,
-        # a simplistic implementation of RFC 2686 8.2.3:
-        expectContinue = req.requestHeaders.getRawHeaders(b'expect')
-        if (expectContinue and expectContinue[0].lower() == b'100-continue' and
-            self._version == b'HTTP/1.1'):
-            req.transport.write(b"HTTP/1.1 100 Continue\r\n\r\n")
+        req.headersReceived(self._command, self._path, self._version)
 
 
     def checkPersistence(self, request, version):

@@ -8,8 +8,8 @@ HTTP response code definitions.
 
 from __future__ import division, absolute_import
 
-_CONTINUE = 100
-SWITCHING = 101
+CONTINUE                        = 100
+SWITCHING                       = 101
 
 OK                              = 200
 CREATED                         = 201
@@ -58,7 +58,7 @@ NOT_EXTENDED                    = 510
 
 RESPONSES = {
     # 100
-    _CONTINUE: "Continue",
+    CONTINUE: "Continue",
     SWITCHING: "Switching Protocols",
 
     # 200

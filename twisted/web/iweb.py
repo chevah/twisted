@@ -325,6 +325,12 @@ class IRequest(Interface):
         """
 
 
+class IEarlyHeadersRequest(IRequest):
+    """
+    A marker interface for resource which gets headers before processing full
+    body content.
+    """
+
 
 class ICredentialFactory(Interface):
     """

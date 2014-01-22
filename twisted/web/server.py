@@ -11,6 +11,7 @@ from __future__ import division, absolute_import
 
 import copy
 import os
+import string
 try:
     from urllib import quote
 except ImportError:
@@ -31,7 +32,7 @@ if _PY3:
         """
 else:
     from twisted.spread.pb import Copyable, ViewPoint
-from twisted.internet import address
+from twisted.internet import address, defer
 from twisted.web import iweb, http, html
 from twisted.web.http import unquote
 from twisted.python import log, _reflectpy3 as reflect, failure, components
@@ -110,6 +111,7 @@ class Request(Copyable, http.Request, components.Componentized):
     __pychecker__ = 'unusednames=issuer'
     _inFakeHead = False
     _encoder = None
+    _resource = None
 
     def __init__(self, *args, **kw):
         http.Request.__init__(self, *args, **kw)
@@ -163,30 +165,126 @@ class Request(Copyable, http.Request, components.Componentized):
             else:
                 return name
 
+    def headersReceived(self, command, path, version):
+        """
+        Called by channel when all headers has been received.
+
+        This method is not intended for users.
+        """
+        self.method = command
+        self.clientproto = version
+        self._setResourceIndentification(path)
+        self._setDefaultHeaders()
+        self.parseCookies()
+        self.gotLength(self.channel.length)
+
+        # Cache the client and server information, we'll need this later to be
+        # serialized and sent with the request so CGIs will work remotely.
+        self.client = self.channel.transport.getPeer()
+        self.host = self.channel.transport.getHost()
+
+        # Add shortcut for site.
+        self.site = self.channel.site
+
+        if iweb.IEarlyHeadersRequest.providedBy(self):
+            self._resource = self.site.getResourceFor(self)
+            if resource.IEarlyHeadersResource.providedBy(self._resource):
+                self._handleEarlyHeaders()
+
+    def _setResourceIndentification(self, path):
+        """
+        Called after all headers are received to define
+        resource identification members.
+
+        It also updates the request arguments if they are encoded in the
+        `path`.
+        """
+        self.uri = path
+        x = self.uri.split('?', 1)
+
+        if len(x) == 1:
+            self.path = self.uri
+        else:
+            self.path, argstring = x
+            self.args = http.parse_qs(argstring, 1)
+
+        self.prepath = []
+        self.postpath = list(map(unquote, self.path[1:].split(b'/')))
+
+
+    def _setDefaultHeaders(self):
+        """
+        Called to set headers on all responses.
+        """
+        self.setHeader(b'server', version)
+        self.setHeader(b'date', http.datetimeToString())
+
+
+    def _handleEarlyHeaders(self):
+        """
+        Called for requests implementing
+        L{twisted.web.iweb.IEarlyHeadersRequest} and resources implemented
+        L{twisted.web.resource.IEarlyHeadersResource}.
+        """
+        result = self._resource.headersReceived(self)
+
+        if isinstance(result, defer.Deferred):
+
+            def _cbResumeProducing(result):
+                self.transport.resumeProducing()
+                return result
+
+            def _cbHeadersReceived(result):
+                self._processHeadersReceived(result)
+
+            def _ebHeadersReceived(reason):
+                self.processingFailed(reason)
+
+            self.transport.pauseProducing()
+            result.addCallback(self._cbResumeProducing)
+            result.addCallback(self._cbHeadersReceived)
+            result.addErrback(self._ebHeadersReceived)
+        else:
+            self._processHeadersReceived(result)
+
+
+    def _processHeadersReceived(self, result):
+        """
+        Continue request process based on response from
+        resource.headersReceived()
+        """
+        self.transport.resumeProducing()
+        # Handle HTTP/1.1 'Expect: 100-continue' based on RFC 2616 8.2.3.
+        expectContinue = self.requestHeaders.getRawHeaders(b'expect')
+        if not (self.clientproto == b'HTTP/1.1' and expectContinue):
+            return
+
+        if expectContinue[0].lower() != b'100-continue':
+            self.code = http.EXPECTATION_FAILED
+            self.finish()
+            return
+
+        if result == http.CONTINUE:
+            self.transport.write(b'HTTP/1.1 100 Continue\r\n\r\n')
+        else:
+            self.code = result
+            self.finish()
+
 
     def process(self):
         """
         Process a request.
         """
-
-        # get site from channel
-        self.site = self.channel.site
-
-        # set various default headers
-        self.setHeader(b'server', version)
-        self.setHeader(b'date', http.datetimeToString())
-
-        # Resource Identification
-        self.prepath = []
-        self.postpath = list(map(unquote, self.path[1:].split(b'/')))
-
+        # We might now have a resource yet since the request has not opt-in
+        # to receive early headers.
+        if not self._resource:
+            self._resource = self.site.getResourceFor(self)
         try:
-            resrc = self.site.getResourceFor(self)
-            if resource._IEncodingResource.providedBy(resrc):
-                encoder = resrc.getEncoder(self)
+            if resource._IEncodingResource.providedBy(self._resource):
+                encoder = self._resource.getEncoder(self)
                 if encoder is not None:
                     self._encoder = encoder
-            self.render(resrc)
+            self.render(self._resource)
         except:
             self.processingFailed(failure.Failure())
 
@@ -438,6 +536,12 @@ class Request(Copyable, http.Request, components.Componentized):
         """
         return self.appRootURL
 
+
+@implementer(iweb.IEarlyHeadersRequest)
+class EarlyHeadersRequest(Request):
+    """
+    A request which gets access to headers before full body was received.
+    """
 
 
 @implementer(iweb._IRequestEncoderFactory)
