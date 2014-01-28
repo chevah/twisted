@@ -101,9 +101,12 @@ class Request(Copyable, http.Request, components.Componentized):
     @ivar defaultContentType: A C{bytes} giving the default I{Content-Type}
         value to send in responses if no other value is set.  C{None} disables
         the default.
+    @ivar sessionCookieBaseName: A C{bytes} giving the base name when creating
+        new session cookies.
     """
 
     defaultContentType = b"text/html"
+    sessionCookieBaseName = b'TWISTED_SESSION'
 
     site = None
     appRootURL = None
@@ -384,7 +387,8 @@ class Request(Copyable, http.Request, components.Componentized):
     def getSession(self, sessionInterface = None):
         # Session management
         if not self.session:
-            cookiename = b"_".join([b'TWISTED_SESSION'] + self.sitepath)
+            cookiename = b"_".join(
+                [self.sessionCookieBaseName] + self.sitepath)
             sessionCookie = self.getCookie(cookiename)
             if sessionCookie:
                 try:

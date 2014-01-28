@@ -466,6 +466,22 @@ class RequestTests(unittest.TestCase):
         request.requestReceived(b'GET', b'/foo%2Fbar', b'HTTP/1.0')
         self.assertEqual(request.prePathURL(), b'http://example.com/foo%2Fbar')
 
+    def test_getSessionCustomCookieName(self):
+        """
+        When creating new session cookies it will use
+        I{Request.sessionCookieBaseName} as the base name for the new cookie.
+        """
+        baseName = b'CUSTON_NAME'
+        channel = DummyChannel()
+        request = server.Request(channel, 1)
+        request.sitepath = []
+        request.site = channel.site
+        request.sessionCookieBaseName = baseName
+
+        session = request.getSession()
+        self.addCleanup(lambda: session.expire())
+
+        self.assertTrue(request.cookies[0].startswith(baseName))
 
 
 class GzipEncoderTests(unittest.TestCase):
