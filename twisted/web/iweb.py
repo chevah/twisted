@@ -184,6 +184,14 @@ class IRequest(Interface):
         """
 
 
+    def getSessionCookieName():
+        """
+        Return the name of the cookie used for storing the session id.
+
+        @return: The C{str} name of the session cookie.
+        """
+
+
     def URLPath():
         """
         @return: A L{URLPath} instance which identifies the URL for which this

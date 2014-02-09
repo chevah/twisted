@@ -387,8 +387,7 @@ class Request(Copyable, http.Request, components.Componentized):
     def getSession(self, sessionInterface = None):
         # Session management
         if not self.session:
-            cookiename = b"_".join(
-                [self.sessionCookieBaseName] + self.sitepath)
+            cookiename = self.getSessionCookieName()
             sessionCookie = self.getCookie(cookiename)
             if sessionCookie:
                 try:
@@ -403,6 +402,12 @@ class Request(Copyable, http.Request, components.Componentized):
         if sessionInterface:
             return self.session.getComponent(sessionInterface)
         return self.session
+
+    def getSessionCookieName(self):
+        """
+        See: L{iweb.IRequest.getSessionCookieName}
+        """
+        return b"_".join([self.sessionCookieBaseName] + self.sitepath)
 
     def _prePathURL(self, prepath):
         port = self.getHost().port
