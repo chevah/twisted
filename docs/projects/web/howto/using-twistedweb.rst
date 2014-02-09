@@ -440,8 +440,8 @@ Twisted Web provides an abstraction of this browser-tracking behavior called the
 
 The default session cookie name is ``TWISTED_SESSION``. It can be change by
 overwriting the default implementation of
-:api:`twisted.web.iweb.IRequest#getSessionCookieName
-<IRequest.getSessionCookieName()>`.
+:api:`twisted.web.server.Request#getSessionCookieName
+<Request.getSessionCookieName()>`.
 
 
 

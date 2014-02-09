@@ -403,11 +403,15 @@ class Request(Copyable, http.Request, components.Componentized):
             return self.session.getComponent(sessionInterface)
         return self.session
 
+
     def getSessionCookieName(self):
         """
-        See: L{iweb.IRequest.getSessionCookieName}
+        Return the name of the cookie used for storing the session id.
+
+        @return: The C{str} name of the session cookie.
         """
         return b"_".join([self.sessionCookieBaseName] + self.sitepath)
+
 
     def _prePathURL(self, prepath):
         port = self.getHost().port
