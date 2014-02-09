@@ -25,13 +25,19 @@ def make_api_link(name, rawtext, text, lineno, inliner,
     else:
         full_name = label = text
 
+    anchor = ''
+    if '#' in full_name:
+        full_name, anchor = full_name.split('#', 1)
+        # Add back the hash.
+        anchor = '#' + anchor
+
     #get the base url for api links from the config file
     env = inliner.document.settings.env
-    base_url =  env.config.apilinks_base_url
+    base_url = env.config.apilinks_base_url
 
     # not really sufficient, but just testing...
     # ...hmmm, maybe this is good enough after all
-    ref = ''.join((base_url, full_name, '.html'))
+    ref = ''.join((base_url, full_name, '.html', anchor))
 
     node = nodes.reference(rawtext, utils.unescape(label), refuri=ref,
                            **options)
