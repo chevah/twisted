@@ -739,9 +739,13 @@ class SphinxBuilder(object):
 
         doctreeDir = buildDir.child('doctrees')
 
-        runCommand(['sphinx-build', '-b', 'html',
-                    '-d', doctreeDir.path, docDir.path,
-                    buildDir.path])
+        # Turn all warning into errors, complain about broken references and
+        # rebuild all files.
+        # It runs in quite mode to reduce noises when reporting errors.
+        runCommand(['sphinx-build', '-W', '-n', '-a', '-E', '-q',
+                   '-b', 'html',
+                   '-d', doctreeDir.path, docDir.path,
+                   buildDir.path])
 
         for path in docDir.walk():
             if path.basename() == "man":
