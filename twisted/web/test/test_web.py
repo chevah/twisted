@@ -486,26 +486,27 @@ class RequestTests(unittest.TestCase):
         return '%s=%s; Path=%s%s' % (key, value, path, securePart)
 
 
-    def test_getSessionCreateSessionHTTP(self):
+    def test_createSessionHTTP(self):
         """
         When request is using HTTP (not secured) transport, new session
         cookies are set without `Secure` flag.
         """
         request = self.makeRequest(channel=DummyChannel())
+        cookieName = b'SESSION_NAME'
 
-        session = request.getSession()
+        session = request.createSession(cookieName)
         self.addCleanup(lambda: session.expire())
 
         cookie = self.makeRawCookie(
-            key=b'TWISTED_SESSION',
+            key=cookieName,
             value=session.uid,
-            path='/',
+            path=b'/',
             secure=False,
             )
         self.assertEqual([cookie], request.cookies)
 
 
-    def test_getSessionCreateSessionHTTPS(self):
+    def test_createSessionHTTPS(self):
         """
         When request is using HTTPS (secured) transport, new session
         cookies are created with `Secure` flag.
@@ -513,14 +514,15 @@ class RequestTests(unittest.TestCase):
         channel = DummyChannel()
         channel.transport = DummyChannel.SSL()
         request = self.makeRequest(channel=channel)
+        cookieName = b'SESSION_NAME'
 
-        session = request.getSession()
+        session = request.createSession(cookieName)
         self.addCleanup(lambda: session.expire())
 
         cookie = self.makeRawCookie(
-            key=b'TWISTED_SESSION',
+            key=cookieName,
             value=session.uid,
-            path='/',
+            path=b'/',
             secure=True,
             )
         self.assertEqual([cookie], request.cookies)
