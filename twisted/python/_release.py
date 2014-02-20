@@ -75,6 +75,9 @@ class CommandFailed(Exception):
         self.exitSignal = exitSignal
         self.output = output
 
+    def __str__(self):
+        return '\nExit code: %s\nExit signal: %s\n%s' % (
+            self.exitStatus, self.exitSignal, self.output)
 
 
 def _changeVersionInFile(old, new, filename):
