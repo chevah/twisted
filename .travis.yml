@@ -5,9 +5,9 @@ python:
 
 # command to install dependencies
 install:
-  - pip install -r test-requirements.txt .
-  # Remove pyc
-  - find . -name "*.pyc" -or -name "*$py.class" | xargs rm -f
+  - pip install .
+  - pip install -r requirements.txt
+  - pip install -r dev-requirements.txt
 
 # command to run tests
 script:
@@ -38,5 +38,8 @@ script:
   # documentation
   # api-documentation
   - .bin/admin/build-apidocs . apidocs
+  - rm -rf apidocs
+
   # process-docs
   - .bin/admin/build-docs . doc/core/howto/template.tpl
+  - rm -rf docs
