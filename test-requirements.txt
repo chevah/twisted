@@ -1,0 +1,7 @@
+twisted-dev-tools==0.0.2
+
+# Maybe this should be added as dependencies to twited-dev-tools.
+sphinx==1.2.1
+pydoctor==0.5
+TwistedChecker==0.2.0
+pyflakes==0.7.3

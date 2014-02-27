@@ -1,0 +1,30 @@
+language: python
+
+python:
+  - "2.7"
+
+# command to install dependencies
+install:
+  - pip install -r test-requirements.txt .
+  # Remove pyc
+  - find . -name "*.pyc" -or -name "*$py.class" | xargs rm -f
+
+# command to run tests
+script:
+  # py-without-modules
+  # - python2.7 ./bin/trial --reporter=bwverbose --without-module OpenSSL --without-module Crypto twisted
+
+  # py-select-gc
+  # - python ./bin/trial --reporter=bwverbose --force-gc twisted
+
+  # python-3.3-tests
+  # - python3.3 admin/run-python3-tests
+
+  # pyflakes
+  - pyflakes twisted
+
+  # documentation
+  # api-documentation
+  - python bin/admin/build-apidocs . apidocs
+  # process-docs
+  - python bin/admin/build-docs . doc/core/howto/template.tpl
