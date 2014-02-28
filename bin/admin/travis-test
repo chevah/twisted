@@ -11,12 +11,22 @@ COMMAND=$1
 TRIAL_COMMAND="./bin/trial -x --reporter=text --unclean-warnings"
 
 #
+# Install project and dependencies with pip.
+#
+pip_install() {
+    pip install .
+    pip install -r requirements.txt
+    # Removed compiled python files.
+    find . -name "*.pyc" -or -name "*$py.class" | xargs rm -f
+}
+
+
+
+#
 # Run trial on twisted.
 #
 run_trial() {
-    pip install .
-    pip install -r requirements.txt
-    find . -name "*.pyc" -or -name "*$py.class" | xargs rm -f
+    pip_install
     python $TRIAL_COMMAND $@ twisted
     return $?
 }
@@ -62,11 +72,9 @@ case "$COMMAND" in
         ;;
 
     "py-3.3")
-        find . -name "*.pyc" -or -name "*$py.class" | xargs rm -f
+        pip_install
         # Buffer stdout/stderr, allow Ctrl+C to stop the tests
         # and exit on first error.
-        pip install .
-        pip install -r requirements.txt
         python3.3 admin/run-python3-tests -b -c -f
         ;;
 
