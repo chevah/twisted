@@ -25,37 +25,4 @@ install:
 
 # command to run tests
 script:
-  - 
-  # py-without-modules
-  # - python2.7 ./bin/trial --reporter=text --without-module OpenSSL --without-module Crypto twisted
-
-  # py-select-gc
-  # - python ./bin/trial --reporter=text --force-gc twisted
-
-  # python-3.3-tests
-  # - python3.3 admin/run-python3-tests
-
-  # python-2.7
-  - ./bin/trial --reporter=text --unclean-warnings --reactor=select twisted
-  - find . -name "*.pyc" -or -name "*$py.class" | xargs rm -f
-  - rm -rf _trial_temp
-  - ./bin/trial --reporter=text --unclean-warnings --reactor=poll twisted
-  - find . -name "*.pyc" -or -name "*$py.class" | xargs rm -f
-  - rm -rf _trial_temp
-  - ./bin/trial --reporter=text --unclean-warnings --reactor=epoll twisted
-  - find . -name "*.pyc" -or -name "*$py.class" | xargs rm -f
-  - rm -rf _trial_temp
-  - ./bin/trial --reporter=text --unclean-warnings --reactor=glib2 twisted
-
-  # pyflakes
-  # - pyflakes twisted
-
-  # documentation
-  # api-documentation
-  - .bin/admin/build-apidocs . apidocs
-  - rm -rf apidocs
-
-  # process-docs
-  - .bin/admin/build-docs . doc/core/howto/template.tpl
-  - rm -rf docs
-
+  - ./bin/admin/travis-test $TEST
