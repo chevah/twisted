@@ -8,12 +8,14 @@
 
 COMMAND=$1
 
+TRIAL_COMMAND=./bin/trial -x --reporter=text --unclean-warnings
+
 #
 # Run trial on twisted.
 #
 run_trial() {
     find . -name "*.pyc" -or -name "*$py.class" | xargs rm -f
-    python ./bin/trial -x --reporter=text --unclean-warnings $@ twisted
+    python $TRIAL_COMMAND $@ twisted
     return $?
 }
 
@@ -48,11 +50,10 @@ case "$COMMAND" in
         ;;
 
     "py-glib2")
+        # Install glib and run python from the system.
         sudo apt-get update -qq
         sudo apt-get install -q python-gobject
-        /usr/bin/python ./bin/trial \
-            -x --reporter=text --unclean-warnings --reactor=glib2 \
-            twisted
+        /usr/bin/python $TRIAL_COMMAND --reactor=glib2 twisted
         ;;
 
     "py-3.3")
