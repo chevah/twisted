@@ -1,7 +1,6 @@
 language: python
 
 python:
-  - "2.6"
   - "2.7"
 
 env:
@@ -23,11 +22,10 @@ matrix:
     - python: "2.7"
       env: TEST=documentation
 
-# command to install dependencies
+# Each builder has its own install requirements in order
+# to avoid installing unused packages.
 install:
-  - pip install .
-  - pip install -r requirements.txt
-  - pip install -r dev-requirements.txt
+  - echo "Custom install steps for each builder."
 
 # command to run tests
 script:

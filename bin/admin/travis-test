@@ -8,12 +8,14 @@
 
 COMMAND=$1
 
-TRIAL_COMMAND=./bin/trial -x --reporter=text --unclean-warnings
+TRIAL_COMMAND="./bin/trial -x --reporter=text --unclean-warnings"
 
 #
 # Run trial on twisted.
 #
 run_trial() {
+    pip install .
+    pip install -r requirements.txt
     find . -name "*.pyc" -or -name "*$py.class" | xargs rm -f
     python $TRIAL_COMMAND $@ twisted
     return $?
@@ -51,8 +53,11 @@ case "$COMMAND" in
 
     "py-glib2")
         # Install glib and run python from the system.
-        sudo apt-get update -qq
-        sudo apt-get install -q python-gobject
+        echo "Updating packages..."
+        #sudo apt-get update -qq
+        echo "Installing documentation..."
+        sudo apt-get install -qq python-gobject python-pip
+        echo "Running tests..."
         /usr/bin/python $TRIAL_COMMAND --reactor=glib2 twisted
         ;;
 
@@ -60,20 +65,25 @@ case "$COMMAND" in
         find . -name "*.pyc" -or -name "*$py.class" | xargs rm -f
         # Buffer stdout/stderr, allow Ctrl+C to stop the tests
         # and exit on first error.
+        pip install .
+        pip install -r requirements.txt
         python3.3 admin/run-python3-tests -b -c -f
         ;;
 
     "pyflakes")
+        pip install pyflakes==0.7.3
         pyflakes twisted
         ;;
 
     "documentation")
         echo "Building docs"
+        pip install sphinx==1.2.1
         python ./bin/admin/build-docs . doc/core/howto/template.
         ;;
 
     "api-reference")
         echo "Building apidocs"
+        pip install pydoctor==0.5
         python ./bin/admin/build-apidocs . apidocs
         ;;
 
