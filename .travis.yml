@@ -19,11 +19,7 @@ matrix:
   include:
     - python: "2.7"
       env: TEST=pyflakes
-  include:
-    - python: "2.7"
       env: TEST=api-reference
-  include:
-    - python: "2.7"
       env: TEST=documentation
 
 # command to install dependencies
