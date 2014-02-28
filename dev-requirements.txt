@@ -1,6 +1,6 @@
 # Requirements for testing and building.
 
-twisted-dev-tools==0.0.2
+# twisted-dev-tools==0.0.2 fails to install on py3.3
 
 # Maybe this should be added as dependencies to twited-dev-tools.
 sphinx==1.2.1
