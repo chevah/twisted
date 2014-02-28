@@ -16,11 +16,11 @@ matrix:
   include:
     - python: "3.3"
       env: TEST=py-3.3
-  include:
     - python: "2.7"
-      env: TEST=pyflakes
-      env: TEST=api-reference
-      env: TEST=documentation
+      env:
+        - TEST=pyflakes
+        - TEST=api-reference
+        - TEST=documentation
 
 # command to install dependencies
 install:
