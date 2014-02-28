@@ -86,7 +86,7 @@ case "$COMMAND" in
 
     "documentation")
         echo "Building docs"
-        pip install sphinx==1.2.1
+        pip install . sphinx==1.2.1
         python ./bin/admin/build-docs . doc/core/howto/template.
         ;;
 
