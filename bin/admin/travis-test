@@ -10,8 +10,9 @@ COMMAND=$1
 
 # Run miniam report to reduce log size and exit of fist error.
 TRIAL_COMMAND="./bin/trial --reporter=text --unclean-warnings"
-# Buffer stdout/stderr, allow Ctrl+C to stop the tests and exit on first error.
-PYTOHN_3_TEST=",/admin/run-python3-tests -b -c"
+# Allow Ctrl+C to stop the tests and exit on first error.
+# When Buffer stdout/stderr, test runner is crashing.
+PYTHON_3_TEST="./admin/run-python3-tests -c"
 
 #
 # Install project and dependencies with pip.
@@ -27,6 +28,10 @@ pip_install() {
 # Produce trial log.
 #
 trial_log() {
+    echo ""
+    echo "--------------------------------------------------------"
+    echo "Trial log"
+    echo "--------------------------------------------------------"
     cat _trial_temp/test.log
 }
 
@@ -45,6 +50,7 @@ run_trial() {
 COMMANDS='
     py-without-modules
     py-select-gc
+    py-select
     py-pool
     py-epool
     py-glib2
