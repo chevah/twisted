@@ -1,6 +1,7 @@
 language: python
 
 python:
+  - "2.6"
   - "2.7"
 
 env:
@@ -9,14 +10,21 @@ env:
   # - TEST=py-pool
   # - TEST=py-epool
   - TEST=py-glib2
-  # - TEST=pyflakes
-  # - TEST=api-reference
-  # - TEST=documentation
+
 
 matrix:
   include:
     - python: "3.3"
       env: TEST=python-3.3-tests
+  include:
+    - python: "2.7"
+      env: TEST=pyflakes
+  include:
+    - python: "2.7"
+      env: TEST=api-reference
+  include:
+    - python: "2.7"
+      env: TEST=documentation
 
 # command to install dependencies
 install:

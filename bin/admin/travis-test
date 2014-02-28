@@ -49,7 +49,7 @@ case "$COMMAND" in
 
     "py-glib2")
         sudo apt-get update -qq
-        sudo apt-get intsall -qq python-gobject
+        sudo apt-get install -q python-gobject
         run_trial --unclean-warnings --reactor=glib2
         ;;
 
