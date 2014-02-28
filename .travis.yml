@@ -5,7 +5,9 @@ python:
 
 env:
   - TEST=py-without-modules
-  - TEST=py-select-gc
+  - TEST=py-select
+  # Disabled since it is very slow.
+  # - TEST=py-select-gc
   - TEST=py-pool
   - TEST=py-epool
   - TEST=py-glib2

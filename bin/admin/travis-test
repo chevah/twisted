@@ -23,6 +23,12 @@ pip_install() {
     find . -name "*.pyc" -or -name "*$py.class" | xargs rm -f
 }
 
+#
+# Produce trial log.
+#
+trial_log() {
+    cat _trial_temp/test.log
+}
 
 
 #
@@ -31,7 +37,9 @@ pip_install() {
 run_trial() {
     pip_install
     python $TRIAL_COMMAND $@ twisted
-    return $?
+    exit_code=$1
+    trial_log
+    return $exit_code
 }
 
 COMMANDS='
@@ -56,6 +64,10 @@ case "$COMMAND" in
         run_trial --force-gc --reactor=select
         ;;
 
+    "py-select")
+        run_trial --reactor=select
+        ;;
+
     "py-pool")
         run_trial --reactor=poll
         ;;
@@ -77,6 +89,9 @@ case "$COMMAND" in
     "py-3.3")
         pip_install
         python3.3 $PYTHON_3_TEST
+        exit_code=$?
+        trial_log
+        exit $exit_code
         ;;
 
     "pyflakes")
