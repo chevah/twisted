@@ -15,7 +15,7 @@ env:
 matrix:
   include:
     - python: "3.3"
-      env: TEST=python-3.3-tests
+      env: TEST=py-3.3
   include:
     - python: "2.7"
       env: TEST=pyflakes
