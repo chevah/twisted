@@ -5,10 +5,10 @@ python:
   - "2.7"
 
 env:
-  # - TEST=py-without-modules
-  # - TEST=py-select-gc
-  # - TEST=py-pool
-  # - TEST=py-epool
+  - TEST=py-without-modules
+  - TEST=py-select-gc
+  - TEST=py-pool
+  - TEST=py-epool
   - TEST=py-glib2
 
 
