@@ -1,4 +1,10 @@
 #!/bin/bash
+#
+# Helper to run tests on Travis CI service.
+#
+# Will exit after first error to reduce load on Travis servers.
+# On errors, developers should run full tests on their computers.
+#
 
 COMMAND=$1
 
@@ -7,7 +13,7 @@ COMMAND=$1
 #
 run_trial() {
     find . -name "*.pyc" -or -name "*$py.class" | xargs rm -f
-    python ./bin/trial --reporter=text --unclean-warnings $@ twisted
+    python ./bin/trial -x --reporter=text --unclean-warnings $@ twisted
     return $?
 }
 
@@ -46,8 +52,9 @@ case "$COMMAND" in
 
     "py-3.3")
         find . -name "*.pyc" -or -name "*$py.class" | xargs rm -f
-        # Buffer stdout/stderr and allow Ctrl+C to stop the tests.
-        python3.3 admin/run-python3-tests -b -c
+        # Buffer stdout/stderr, allow Ctrl+C to stop the tests
+        # and exit on first error.
+        python3.3 admin/run-python3-tests -b -c -f
         ;;
 
     "pyflakes")
