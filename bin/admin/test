@@ -1,0 +1,70 @@
+#!/bin/bash
+
+COMMAND=$1
+
+#
+# Run trial on twisted.
+#
+run_trial() {
+    find . -name "*.pyc" -or -name "*$py.class" | xargs rm -f
+    python ./bin/trial --reporter=text --unclean-warnings $@ twisted
+    return $?
+}
+
+COMMANDS='
+    py-without-modules
+    py-select-gc
+    py-pool
+    py-epool
+    py-glib2
+    py-3.3
+    pyflakes
+    documentation
+    '
+
+
+case "$COMMAND" in
+    "py-without-modules")
+        run_trial --without-module OpenSSL --without-module Crypto
+        ;;
+
+    "py-select-gc")
+        run_trial --force-gc --reactor=select
+        ;;
+
+    "py-pool")
+        run_trial --reactor=poll
+        ;;
+
+    "py-epool")
+        run_trial --unclean-warnings --reactor=epoll
+        ;;
+
+    "py-glib2")
+        run_trial --unclean-warnings --reactor=glib2
+        ;;
+
+    "py-3.3")
+        find . -name "*.pyc" -or -name "*$py.class" | xargs rm -f
+        # Buffer stdout/stderr and allow Ctrl+C to stop the tests.
+        python3.3 admin/run-python3-tests -b -c
+        ;;
+
+    "pyflakes")
+        pyflakes twisted
+        ;;
+
+    "documentation")
+        echo "Building apidocs"
+        python ./bin/admin/build-apidocs . apidocs
+        echo "Building docs"
+        python ./bin/admin/build-docs . doc/core/howto/template.
+        ;;
+
+    *)
+        echo "Unknown command $COMMAND"
+        echo "Available commands: $COMMANDS"
+        exit 1
+esac
+
+exit $?
