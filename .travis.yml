@@ -8,8 +8,8 @@ env:
   - TEST=py-select
   # Disabled since it is very slow.
   # - TEST=py-select-gc
-  - TEST=py-pool
-  - TEST=py-epool
+  - TEST=py-poll
+  - TEST=py-epoll
   - TEST=py-glib2
 
 

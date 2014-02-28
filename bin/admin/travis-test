@@ -51,8 +51,8 @@ COMMANDS='
     py-without-modules
     py-select-gc
     py-select
-    py-pool
-    py-epool
+    py-poll
+    py-epoll
     py-glib2
     py-3.3
     pyflakes
@@ -74,11 +74,11 @@ case "$COMMAND" in
         run_trial --reactor=select
         ;;
 
-    "py-pool")
+    "py-poll")
         run_trial --reactor=poll
         ;;
 
-    "py-epool")
+    "py-epoll")
         run_trial --reactor=epoll
         ;;
 
