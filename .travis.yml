@@ -8,7 +8,7 @@ env:
   - TEST=py-select-gc
   - TEST=py-pool
   - TEST=py-epool
-  - TEST=glib2
+  - TEST=py-glib2
   - TEST=pyflakes
   - TEST=documentation
 
