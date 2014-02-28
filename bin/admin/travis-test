@@ -8,7 +8,10 @@
 
 COMMAND=$1
 
-TRIAL_COMMAND="./bin/trial -x --reporter=text --unclean-warnings"
+# Run miniam report to reduce log size and exit of fist error.
+TRIAL_COMMAND="./bin/trial --reporter=text --unclean-warnings"
+# Buffer stdout/stderr, allow Ctrl+C to stop the tests and exit on first error.
+PYTOHN_3_TEST=",/admin/run-python3-tests -b -c"
 
 #
 # Install project and dependencies with pip.
@@ -73,9 +76,7 @@ case "$COMMAND" in
 
     "py-3.3")
         pip_install
-        # Buffer stdout/stderr, allow Ctrl+C to stop the tests
-        # and exit on first error.
-        python3.3 admin/run-python3-tests -b -c -f
+        python3.3 $PYTHON_3_TEST
         ;;
 
     "pyflakes")
