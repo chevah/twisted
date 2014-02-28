@@ -26,6 +26,7 @@ COMMANDS='
     py-3.3
     pyflakes
     documentation
+    api-reference
     '
 
 
@@ -62,10 +63,13 @@ case "$COMMAND" in
         ;;
 
     "documentation")
-        echo "Building apidocs"
-        python ./bin/admin/build-apidocs . apidocs
         echo "Building docs"
         python ./bin/admin/build-docs . doc/core/howto/template.
+        ;;
+
+    "api-reference")
+        echo "Building apidocs"
+        python ./bin/admin/build-apidocs . apidocs
         ;;
 
     *)

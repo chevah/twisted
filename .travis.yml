@@ -10,6 +10,7 @@ env:
   - TEST=py-epool
   - TEST=py-glib2
   - TEST=pyflakes
+  - TEST=api-reference
   - TEST=documentation
 
 matrix:
