@@ -101,8 +101,8 @@ class Request(Copyable, http.Request, components.Componentized):
     @ivar defaultContentType: A C{bytes} giving the default I{Content-Type}
         value to send in responses if no other value is set.  C{None} disables
         the default.
-    @ivar sessionCookieBaseName: A C{bytes} giving the base name when creating
-        new session cookies.
+    @ivar sessionCookieBaseName: The base name for session cookies.
+    @type sessionCookieBaseName: L{bytes}
     """
 
     defaultContentType = b"text/html"
