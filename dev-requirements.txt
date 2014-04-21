@@ -1,9 +1,0 @@
-# Requirements for testing and building.
-
-twisted-dev-tools==0.0.2  # Fails to install on py3.3.
-
-# Maybe this should be added as dependencies to twited-dev-tools.
-sphinx==1.2.1
-pydoctor==0.5
-pyflakes==0.7.3
-TwistedChecker==0.2.0 # Fails to install on py3.3

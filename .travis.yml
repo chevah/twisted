@@ -1,22 +1,27 @@
+#
+# Travis CI configuration file for Twisted tests.
+#
 language: python
 
 python:
   - "2.7"
 
+# Tests on supported Python version are executed with various reactors.
 env:
-  - TEST=py-without-modules
   - TEST=py-select
-  # Disabled since it is very slow.
-  # - TEST=py-select-gc
   - TEST=py-poll
   - TEST=py-epoll
   - TEST=py-glib2
 
-
+# In addition, some tests are executed on a single Python version.
 matrix:
   include:
+    # Python 3.3 tests are only executed once while Twisted is in migration
+    # process.
     - python: "3.3"
       env: TEST=py-3.3
+    - python: "2.7"
+      env: TEST=py-without-modules
     - python: "2.7"
       env: TEST=pyflakes
     - python: "2.7"
@@ -29,6 +34,6 @@ matrix:
 install:
   - echo "Custom install steps for each builder."
 
-# command to run tests
+# Command used for executing the tests, where $TEST is extracted from `env`.
 script:
   - ./bin/admin/travis-test $TEST

@@ -8,21 +8,29 @@
 
 COMMAND=$1
 
-# Run miniam report to reduce log size and exit of fist error.
+# Run minimal report to reduce log size.
 TRIAL_COMMAND="./bin/trial --reporter=text --unclean-warnings"
 # Allow Ctrl+C to stop the tests and exit on first error.
 # When Buffer stdout/stderr, test runner is crashing.
 PYTHON_3_TEST="./admin/run-python3-tests -c"
+
+REQUIREMENTS="\
+    pyOpenSSL==0.13.1\
+    service-identity==0.2\
+    pycrypto==2.6.1\
+    pyasn1==0.1.7\
+   "
 
 #
 # Install project and dependencies with pip.
 #
 pip_install() {
     pip install .
-    pip install -r requirements.txt
+    pip install $REQUIREMENTS
     # Removed compiled python files.
     find . -name "*.pyc" -or -name "*$py.class" | xargs rm -f
 }
+
 
 #
 # Produce trial log.
@@ -37,15 +45,16 @@ trial_log() {
 
 
 #
-# Run trial on twisted.
+# Run trial on twisted inside the virtual environment.
 #
-run_trial() {
+run_venv_trial() {
     pip_install
     python $TRIAL_COMMAND $@ twisted
     exit_code=$1
     trial_log
     return $exit_code
 }
+
 
 COMMANDS='
     py-without-modules
@@ -63,31 +72,33 @@ COMMANDS='
 
 case "$COMMAND" in
     "py-without-modules")
-        run_trial --without-module OpenSSL --without-module Crypto
+        run_venv_trial --without-module OpenSSL --without-module Crypto
         ;;
 
     "py-select-gc")
-        run_trial --force-gc --reactor=select
+        run_venv_trial --force-gc --reactor=select
         ;;
 
     "py-select")
-        run_trial --reactor=select
+        run_venv_trial --reactor=select
         ;;
 
     "py-poll")
-        run_trial --reactor=poll
+        run_venv_trial --reactor=poll
         ;;
 
     "py-epoll")
-        run_trial --reactor=epoll
+        run_venv_trial --reactor=epoll
         ;;
 
     "py-glib2")
-        # Install glib and run python from the system.
+        # Install glib on the base system and run Python from the system as
+        # the Python package does not support virtual environments.
         echo "Updating packages..."
-        #sudo apt-get update -qq
-        echo "Installing documentation..."
-        sudo apt-get install -qq python-gobject python-pip
+        sudo apt-get update -qq
+        echo "Installing dependencies..."
+        sudo apt-get install -qq python-gobject
+        pip_install
         echo "Running tests..."
         /usr/bin/python $TRIAL_COMMAND --reactor=glib2 twisted
         ;;
@@ -101,18 +112,23 @@ case "$COMMAND" in
         ;;
 
     "pyflakes")
-        pip install pyflakes==0.7.3
+        pip install pyflakes==0.8.1
         pyflakes twisted
         ;;
 
+    "twistedchecker")
+        pip install pep8==1.5.1 twistedchecker==0.2.0
+        twistedchecker twisted
+        ;;
+
     "documentation")
-        echo "Building docs"
+        echo "Building narative documentation"
         pip install . sphinx==1.2.1
         python ./bin/admin/build-docs . doc/core/howto/template.
         ;;
 
     "api-reference")
-        echo "Building apidocs"
+        echo "Building api documentation"
         pip install pydoctor==0.5
         python ./bin/admin/build-apidocs . apidocs
         ;;

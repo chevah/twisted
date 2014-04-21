@@ -1,5 +1,0 @@
-# Runtime requirements.
-
-pyOpenSSL==0.13.1
-pycrypto==2.6.1
-pyasn1==0.1.7
