@@ -218,10 +218,8 @@ class TestINotify(unittest.TestCase):
         C{inotify.IN_DELETE_SELF} event to the callback.
         """
         def operation(path):
-            print "actual: %s" % path.path
             path.remove()
 
-        print "target: %s" % self.dirname
         return self._notificationTest(
             inotify.IN_DELETE_SELF, operation, expectedPath=self.dirname)
 
