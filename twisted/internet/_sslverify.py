@@ -6,18 +6,201 @@
 from __future__ import division, absolute_import
 
 import itertools
+import warnings
+
 from hashlib import md5
 
-from OpenSSL import SSL, crypto
-from zope.interface import implementer
+from OpenSSL import SSL, crypto, version
+try:
+    from OpenSSL.SSL import SSL_CB_HANDSHAKE_DONE, SSL_CB_HANDSHAKE_START
+except ImportError:
+    SSL_CB_HANDSHAKE_START = 0x10
+    SSL_CB_HANDSHAKE_DONE = 0x20
+
+from twisted.python import log
+
+
+def _cantSetHostnameIndication(connection, hostname):
+    """
+    The option to set SNI is not available, so do nothing.
+
+    @param connection: the connection
+    @type connection: L{OpenSSL.SSL.Connection}
+
+    @param hostname: the server's host name
+    @type: hostname: L{bytes}
+    """
+
+
+
+def _setHostNameIndication(connection, hostname):
+    """
+    Set the server name indication on the given client connection to the given
+    value.
+
+    @param connection: the connection
+    @type connection: L{OpenSSL.SSL.Connection}
+
+    @param hostname: the server's host name
+    @type: hostname: L{bytes}
+    """
+    connection.set_tlsext_host_name(hostname)
+
+
+
+if getattr(SSL.Connection, "set_tlsext_host_name", None) is None:
+    _maybeSetHostNameIndication = _cantSetHostnameIndication
+else:
+    _maybeSetHostNameIndication = _setHostNameIndication
+
+
+
+class SimpleVerificationError(Exception):
+    """
+    Not a very useful verification error.
+    """
+
+
+
+def _idnaBytes(text):
+    """
+    Convert some text typed by a human into some ASCII bytes.
+
+    This is provided to allow us to use the U{partially-broken IDNA
+    implementation in the standard library <http://bugs.python.org/issue17305>}
+    if the more-correct U{idna <https://pypi.python.org/pypi/idna>} package is
+    not available; C{service_identity} is somewhat stricter about this.
+
+    @param text: A domain name, hopefully.
+    @type text: L{unicode}
+
+    @return: The domain name's IDNA representation, encoded as bytes.
+    @rtype: L{bytes}
+    """
+    try:
+        import idna
+    except ImportError:
+        return text.encode("idna")
+    else:
+        return idna.encode(text).encode("ascii")
+
+
+
+def _idnaText(octets):
+    """
+    Convert some IDNA-encoded octets into some human-readable text.
+
+    Currently only used by the tests.
+
+    @param octets: Some bytes representing a hostname.
+    @type octets: L{bytes}
+
+    @return: A human-readable domain name.
+    @rtype: L{unicode}
+    """
+    try:
+        import idna
+    except ImportError:
+        return octets.decode("idna")
+    else:
+        return idna.decode(octets)
+
+
+
+def simpleVerifyHostname(connection, hostname):
+    """
+    Check only the common name in the certificate presented by the peer and
+    only for an exact match.
+
+    This is to provide I{something} in the way of hostname verification to
+    users who haven't upgraded past OpenSSL 0.12 or installed
+    C{service_identity}.  This check is overly strict, relies on a deprecated
+    TLS feature (you're supposed to ignore the commonName if the
+    subjectAlternativeName extensions are present, I believe), and lots of
+    valid certificates will fail.
+
+    @param connection: the OpenSSL connection to verify.@
+    @type connection: L{OpenSSL.SSL.Connection}
+
+    @param hostname: The hostname expected by the user.
+    @type hostname: L{unicode}
+
+    @raise twisted.internet.ssl.VerificationError: if the common name and
+        hostname don't match.
+    """
+    commonName = connection.get_peer_certificate().get_subject().commonName
+    if commonName != hostname:
+        raise SimpleVerificationError(repr(commonName) + "!=" +
+                                      repr(hostname))
+
+
+
+def _selectVerifyImplementation():
+    """
+    U{service_identity <https://pypi.python.org/pypi/service_identity>}
+    requires pyOpenSSL 0.12 or better but our dependency is still back at 0.10.
+    Determine if pyOpenSSL has the requisite feature, and whether
+    C{service_identity} is installed.  If so, use it.  If not, use simplistic
+    and incorrect checking as implemented in L{simpleVerifyHostname}.
+
+    @return: 2-tuple of (C{verify_hostname}, C{VerificationError})
+    @rtype: L{tuple}
+    """
+
+    whatsWrong = (
+        "Without the service_identity module and a recent enough pyOpenSSL to"
+        "support it, Twisted can perform only rudimentary TLS client hostname"
+        "verification.  Many valid certificate/hostname mappings may be "
+        "rejected."
+    )
+
+    if hasattr(crypto.X509, "get_extension_count"):
+        try:
+            from service_identity import VerificationError
+            from service_identity.pyopenssl import verify_hostname
+            return verify_hostname, VerificationError
+        except ImportError:
+            warnings.warn(
+                "You do not have the service_identity module installed. "
+                "Please install it from "
+                "<https://pypi.python.org/pypi/service_identity>. "
+                + whatsWrong,
+                UserWarning,
+                stacklevel=2
+            )
+    else:
+        warnings.warn(
+            "Your version of pyOpenSSL, {0}, is out of date.  "
+            "Please upgrade to at least 0.12 and install service_identity "
+            "from <https://pypi.python.org/pypi/service_identity>. "
+            .format(version.__version__) + whatsWrong,
+            UserWarning,
+            stacklevel=2
+        )
+
+    return simpleVerifyHostname, SimpleVerificationError
+
+
+verifyHostname, VerificationError = _selectVerifyImplementation()
+
+
+
+from zope.interface import Interface, implementer
 
 from twisted.internet.defer import Deferred
 from twisted.internet.error import VerifyError, CertificateError
-from twisted.internet.interfaces import IAcceptableCiphers, ICipher
-from twisted.python import _reflectpy3 as reflect, util
+from twisted.internet.interfaces import (
+    IAcceptableCiphers, ICipher, IOpenSSLClientConnectionCreator
+)
+
+from twisted.python import reflect, util
+from twisted.python.deprecate import _mutuallyExclusiveArguments
 from twisted.python.compat import nativeString, networkString, unicode
+from twisted.python.failure import Failure
 from twisted.python.util import FancyEqMixin
 
+from twisted.python.deprecate import deprecated
+from twisted.python.versions import Version
 
 
 def _sessionCounter(counter=itertools.count()):
@@ -157,23 +340,49 @@ class DistinguishedName(dict):
 DN = DistinguishedName
 
 
+
 class CertBase:
+    """
+    Base class for public (certificate only) and private (certificate + key
+    pair) certificates.
+
+    @ivar original: The underlying OpenSSL certificate object.
+    @type original: L{OpenSSL.crypto.X509}
+    """
+
     def __init__(self, original):
         self.original = original
+
 
     def _copyName(self, suffix):
         dn = DistinguishedName()
         dn._copyFrom(getattr(self.original, 'get_'+suffix)())
         return dn
 
+
     def getSubject(self):
         """
         Retrieve the subject of this certificate.
 
-        @rtype: L{DistinguishedName}
         @return: A copy of the subject of this certificate.
+        @rtype: L{DistinguishedName}
         """
         return self._copyName('subject')
+
+
+    def __conform__(self, interface):
+        """
+        Convert this L{CertBase} into a provider of the given interface.
+
+        @param interface: The interface to conform to.
+        @type interface: L{Interface}
+
+        @return: an L{IOpenSSLTrustRoot} provider or L{NotImplemented}
+        @rtype: C{interface} or L{NotImplemented}
+        """
+        if interface is IOpenSSLTrustRoot:
+            return OpenSSLCertificateAuthorities([self.original])
+        return NotImplemented
 
 
 
@@ -421,12 +630,21 @@ class PrivateCertificate(Certificate):
 
 
     def options(self, *authorities):
+        """
+        Create a context factory using this L{PrivateCertificate}'s certificate
+        and private key.
+
+        @param authorities: A list of L{Certificate} object
+
+        @return: A context factory.
+        @rtype: L{CertificateOptions <twisted.internet.ssl.CertificateOptions>}
+        """
         options = dict(privateKey=self.privateKey.original,
                        certificate=self.original)
         if authorities:
-            options.update(dict(verify=True,
-                                requireCertificate=True,
-                                caCerts=[auth.original for auth in authorities]))
+            options.update(dict(trustRoot=OpenSSLCertificateAuthorities(
+                [auth.original for auth in authorities]
+            )))
         return OpenSSLCertificateOptions(**options)
 
 
@@ -623,11 +841,351 @@ class KeyPair(PublicKey):
             self.signRequestObject(dn, self.requestObject(dn), serialNumber),
             self)
 
+KeyPair.__getstate__ = deprecated(Version("Twisted", 14, 1, 0),
+    "a real persistence system")(KeyPair.__getstate__)
+KeyPair.__setstate__ = deprecated(Version("Twisted", 14, 1, 0),
+    "a real persistence system")(KeyPair.__setstate__)
+
+
+
+class IOpenSSLTrustRoot(Interface):
+    """
+    Trust settings for an OpenSSL context.
+
+    Note that this interface's methods are private, so things outside of
+    Twisted shouldn't implement it.
+    """
+
+    def _addCACertsToContext(context):
+        """
+        Add certificate-authority certificates to an SSL context whose
+        connections should trust those authorities.
+
+        @param context: An SSL context for a connection which should be
+            verified by some certificate authority.
+        @type context: L{OpenSSL.SSL.Context}
+
+        @return: L{None}
+        """
+
+
+
+@implementer(IOpenSSLTrustRoot)
+class OpenSSLCertificateAuthorities(object):
+    """
+    Trust an explicitly specified set of certificates, represented by a list of
+    L{OpenSSL.crypto.X509} objects.
+    """
+
+    def __init__(self, caCerts):
+        """
+        @param caCerts: The certificate authorities to trust when using this
+            object as a C{trustRoot} for L{OpenSSLCertificateOptions}.
+        @type caCerts: L{list} of L{OpenSSL.crypto.X509}
+        """
+        self._caCerts = caCerts
+
+
+    def _addCACertsToContext(self, context):
+        store = context.get_cert_store()
+        for cert in self._caCerts:
+            store.add_cert(cert)
+
+
+
+@implementer(IOpenSSLTrustRoot)
+class OpenSSLDefaultPaths(object):
+    """
+    Trust the set of default verify paths that OpenSSL was built with, as
+    specified by U{SSL_CTX_set_default_verify_paths
+    <https://www.openssl.org/docs/ssl/SSL_CTX_load_verify_locations.html>}.
+    """
+
+    def _addCACertsToContext(self, context):
+        context.set_default_verify_paths()
+
+
+
+def platformTrust():
+    """
+    Attempt to discover a set of trusted certificate authority certificates
+    (or, in other words: trust roots, or root certificates) whose trust is
+    managed and updated by tools outside of Twisted.
+
+    If you are writing any client-side TLS code with Twisted, you should use
+    this as the C{trustRoot} argument to L{CertificateOptions
+    <twisted.internet.ssl.CertificateOptions>}.
+
+    The result of this function should be like the up-to-date list of
+    certificates in a web browser.  When developing code that uses
+    C{platformTrust}, you can think of it that way.  However, the choice of
+    which certificate authorities to trust is never Twisted's responsibility.
+    Unless you're writing a very unusual application or library, it's not your
+    code's responsibility either.  The user may use platform-specific tools for
+    defining which server certificates should be trusted by programs using TLS.
+    The purpose of using this API is to respect that decision as much as
+    possible.
+
+    This should be a set of trust settings most appropriate for I{client} TLS
+    connections; i.e. those which need to verify a server's authenticity.  You
+    should probably use this by default for any client TLS connection that you
+    create.  For servers, however, client certificates are typically not
+    verified; or, if they are, their verification will depend on a custom,
+    application-specific certificate authority.
+
+    @since: 14.0
+
+    @note: Currently, L{platformTrust} depends entirely upon your OpenSSL build
+        supporting a set of "L{default verify paths <OpenSSLDefaultPaths>}"
+        which correspond to certificate authority trust roots.  Unfortunately,
+        whether this is true of your system is both outside of Twisted's
+        control and difficult (if not impossible) for Twisted to detect
+        automatically.
+
+        Nevertheless, this ought to work as desired by default on:
+
+            - Ubuntu Linux machines with the U{ca-certificates
+              <https://launchpad.net/ubuntu/+source/ca-certificates>} package
+              installed,
+
+            - Mac OS X when using the system-installed version of OpenSSL (i.e.
+              I{not} one installed via MacPorts or Homebrew),
+
+            - any build of OpenSSL which has had certificate authority
+              certificates installed into its default verify paths (by default,
+              C{/usr/local/ssl/certs} if you've built your own OpenSSL), or
+
+            - any process where the C{SSL_CERT_FILE} environment variable is
+              set to the path of a file containing your desired CA certificates
+              bundle.
+
+        Hopefully soon, this API will be updated to use more sophisticated
+        trust-root discovery mechanisms.  Until then, you can follow tickets in
+        the Twisted tracker for progress on this implementation on U{Microsoft
+        Windows <https://twistedmatrix.com/trac/ticket/6371>}, U{Mac OS X
+        <https://twistedmatrix.com/trac/ticket/6372>}, and U{a fallback for
+        other platforms which do not have native trust management tools
+        <https://twistedmatrix.com/trac/ticket/6934>}.
+
+    @return: an appropriate trust settings object for your platform.
+    @rtype: L{IOpenSSLTrustRoot}
+
+    @raise NotImplementedError: if this platform is not yet supported by
+        Twisted.  At present, only OpenSSL is supported.
+    """
+    return OpenSSLDefaultPaths()
+
+
+
+def _tolerateErrors(wrapped):
+    """
+    Wrap up an C{info_callback} for pyOpenSSL so that if something goes wrong
+    the error is immediately logged and the connection is dropped if possible.
+
+    This wrapper exists because some versions of pyOpenSSL don't handle errors
+    from callbacks at I{all}, and those which do write tracebacks directly to
+    stderr rather than to a supplied logging system.  This reports unexpected
+    errors to the Twisted logging system.
+
+    Also, this terminates the connection immediately if possible because if
+    you've got bugs in your verification logic it's much safer to just give up.
+
+    @param wrapped: A valid C{info_callback} for pyOpenSSL.
+    @type wrapped: L{callable}
+
+    @return: A valid C{info_callback} for pyOpenSSL that handles any errors in
+        C{wrapped}.
+    @rtype: L{callable}
+    """
+    def infoCallback(connection, where, ret):
+        try:
+            return wrapped(connection, where, ret)
+        except:
+            f = Failure()
+            log.err(f, "Error during info_callback")
+            connection.get_app_data().failVerification(f)
+    return infoCallback
+
+
+
+@implementer(IOpenSSLClientConnectionCreator)
+class ClientTLSOptions(object):
+    """
+    Client creator for TLS.
+
+    Private implementation type (not exposed to applications) for public
+    L{optionsForClientTLS} API.
+
+    @ivar _ctx: The context to use for new connections.
+    @type _ctx: L{SSL.Context}
+
+    @ivar _hostname: The hostname to verify, as specified by the application,
+        as some human-readable text.
+    @type _hostname: L{unicode}
+
+    @ivar _hostnameBytes: The hostname to verify, decoded into IDNA-encoded
+        bytes.  This is passed to APIs which think that hostnames are bytes,
+        such as OpenSSL's SNI implementation.
+    @type _hostnameBytes: L{bytes}
+
+    @ivar _hostnameASCII: The hostname, as transcoded into IDNA ASCII-range
+        unicode code points.  This is pre-transcoded because the
+        C{service_identity} package is rather strict about requiring the
+        C{idna} package from PyPI for internationalized domain names, rather
+        than working with Python's built-in (but sometimes broken) IDNA
+        encoding.  ASCII values, however, will always work.
+    @type _hostnameASCII: L{unicode}
+    """
+
+    def __init__(self, hostname, ctx):
+        """
+        Initialize L{ClientTLSOptions}.
+
+        @param hostname: The hostname to verify as input by a human.
+        @type hostname: L{unicode}
+
+        @param ctx: an L{SSL.Context} to use for new connections.
+        @type ctx: L{SSL.Context}.
+        """
+        self._ctx = ctx
+        self._hostname = hostname
+        self._hostnameBytes = _idnaBytes(hostname)
+        self._hostnameASCII = self._hostnameBytes.decode("ascii")
+        ctx.set_info_callback(
+            _tolerateErrors(self._identityVerifyingInfoCallback)
+        )
+
+
+    def clientConnectionForTLS(self, tlsProtocol):
+        """
+        Create a TLS connection for a client.
+
+        @note: This will call C{set_app_data} on its connection.  If you're
+            delegating to this implementation of this method, don't ever call
+            C{set_app_data} or C{set_info_callback} on the returned connection,
+            or you'll break the implementation of various features of this
+            class.
+
+        @param tlsProtocol: the TLS protocol initiating the connection.
+        @type tlsProtocol: L{twisted.protocols.tls.TLSMemoryBIOProtocol}
+
+        @return: the configured client connection.
+        @rtype: L{OpenSSL.SSL.Connection}
+        """
+        context = self._ctx
+        connection = SSL.Connection(context, None)
+        connection.set_app_data(tlsProtocol)
+        return connection
+
+
+    def _identityVerifyingInfoCallback(self, connection, where, ret):
+        """
+        U{info_callback
+        <http://pythonhosted.org/pyOpenSSL/api/ssl.html#OpenSSL.SSL.Context.set_info_callback>
+        } for pyOpenSSL that verifies the hostname in the presented certificate
+        matches the one passed to this L{ClientTLSOptions}.
+
+        @param connection: the connection which is handshaking.
+        @type connection: L{OpenSSL.SSL.Connection}
+
+        @param where: flags indicating progress through a TLS handshake.
+        @type where: L{int}
+
+        @param ret: ignored
+        @type ret: ignored
+        """
+        if where & SSL_CB_HANDSHAKE_START:
+            _maybeSetHostNameIndication(connection, self._hostnameBytes)
+        elif where & SSL_CB_HANDSHAKE_DONE:
+            try:
+                verifyHostname(connection, self._hostnameASCII)
+            except VerificationError:
+                f = Failure()
+                transport = connection.get_app_data()
+                transport.failVerification(f)
+
+
+
+def optionsForClientTLS(hostname, trustRoot=None, clientCertificate=None,
+                         **kw):
+    """
+    Create a L{client connection creator <IOpenSSLClientConnectionCreator>} for
+    use with APIs such as L{SSL4ClientEndpoint
+    <twisted.internet.endpoints.SSL4ClientEndpoint>}, L{connectSSL
+    <twisted.internet.interfaces.IReactorSSL.connectSSL>}, and L{startTLS
+    <twisted.internet.interfaces.ITLSTransport.startTLS>}.
+
+    @since: 14.0
+
+    @param hostname: The expected name of the remote host.  This serves two
+        purposes: first, and most importantly, it verifies that the certificate
+        received from the server correctly identifies the specified hostname.
+        The second purpose is (if the local C{pyOpenSSL} supports it) to use
+        the U{Server Name Indication extension
+        <https://en.wikipedia.org/wiki/Server_Name_Indication>} to indicate to
+        the server which certificate should be used.
+    @type hostname: L{unicode}
+
+    @param trustRoot: Specification of trust requirements of peers.  This may
+        be a L{Certificate} or the result of L{platformTrust}.  By default it
+        is L{platformTrust} and you probably shouldn't adjust it unless you
+        really know what you're doing.  Be aware that clients using this
+        interface I{must} verify the server; you cannot explicitly pass C{None}
+        since that just means to use L{platformTrust}.
+    @type trustRoot: L{IOpenSSLTrustRoot}
+
+    @param clientCertificate: The certificate and private key that the client
+        will use to authenticate to the server.  If unspecified, the client
+        will not authenticate.
+    @type clientCertificate: L{PrivateCertificate}
+
+    @param extraCertificateOptions: keyword-only argument; this is a dictionary
+        of additional keyword arguments to be presented to
+        L{CertificateOptions}.  Please avoid using this unless you absolutely
+        need to; any time you need to pass an option here that is a bug in this
+        interface.
+    @type extraCertificateOptions: L{dict}
+
+    @param kw: (Backwards compatibility hack to allow keyword-only arguments on
+        Python 2.  Please ignore; arbitrary keyword arguments will be errors.)
+    @type kw: L{dict}
+
+    @return: A client connection creator.
+    @rtype: L{IOpenSSLClientConnectionCreator}
+    """
+    extraCertificateOptions = kw.pop('extraCertificateOptions', None) or {}
+    if trustRoot is None:
+        trustRoot = platformTrust()
+    if kw:
+        raise TypeError(
+            "optionsForClientTLS() got an unexpected keyword argument"
+            " '{arg}'".format(
+                arg=kw.popitem()[0]
+            )
+        )
+    if not isinstance(hostname, unicode):
+        raise TypeError(
+            "optionsForClientTLS requires text for host names, not "
+            + hostname.__class__.__name__
+        )
+    if clientCertificate:
+        extraCertificateOptions.update(
+            privateKey=clientCertificate.privateKey.original,
+            certificate=clientCertificate.original
+        )
+    certificateOptions = OpenSSLCertificateOptions(
+        trustRoot=trustRoot,
+        **extraCertificateOptions
+    )
+    return ClientTLSOptions(hostname, certificateOptions.getContext())
+
 
 
 class OpenSSLCertificateOptions(object):
     """
-    A factory for SSL context objects for both SSL servers and clients.
+    A L{CertificateOptions <twisted.internet.ssl.CertificateOptions>} specifies
+    the security properties for a client or server TLS connection used with
+    OpenSSL.
 
     @ivar _options: Any option flags to set on the L{OpenSSL.SSL.Context}
         object that will be created.
@@ -648,6 +1206,12 @@ class OpenSSLCertificateOptions(object):
                                            0x00400000)
     _OP_SINGLE_ECDH_USE = getattr(SSL, 'OP_SINGLE_ECDH_USE ', 0x00080000)
 
+
+    @_mutuallyExclusiveArguments([
+        ['trustRoot', 'requireCertificate'],
+        ['trustRoot', 'verify'],
+        ['trustRoot', 'caCerts'],
+    ])
     def __init__(self,
                  privateKey=None,
                  certificate=None,
@@ -663,7 +1227,8 @@ class OpenSSLCertificateOptions(object):
                  enableSessionTickets=False,
                  extraCertChain=None,
                  acceptableCiphers=None,
-                 dhParameters=None):
+                 dhParameters=None,
+                 trustRoot=None):
         """
         Create an OpenSSL context SSL connection context factory.
 
@@ -676,44 +1241,55 @@ class OpenSSLCertificateOptions(object):
             constants provided by pyOpenSSL).  By default, a setting will be
             used which allows TLSv1.0, TLSv1.1, and TLSv1.2.
 
-        @param verify: If C{True}, verify certificates received from the peer
-            and fail the handshake if verification fails.  Otherwise, allow
-            anonymous sessions and sessions with certificates which fail
-            validation.  By default this is C{False}.
+        @param verify: Please use a C{trustRoot} keyword argument instead,
+            since it provides the same functionality in a less error-prone way.
+            By default this is L{False}.
 
-        @param caCerts: List of certificate authority certificate objects to
-            use to verify the peer's certificate.  Only used if verify is
-            C{True} and will be ignored otherwise.  Since verify is C{False} by
-            default, this is C{None} by default.
+            If L{True}, verify certificates received from the peer and fail the
+            handshake if verification fails.  Otherwise, allow anonymous
+            sessions and sessions with certificates which fail validation.
+
+        @param caCerts: Please use a C{trustRoot} keyword argument instead,
+            since it provides the same functionality in a less error-prone way.
+
+            List of certificate authority certificate objects to use to verify
+            the peer's certificate.  Only used if verify is L{True} and will be
+            ignored otherwise.  Since verify is L{False} by default, this is
+            C{None} by default.
 
         @type caCerts: C{list} of L{OpenSSL.crypto.X509}
 
         @param verifyDepth: Depth in certificate chain down to which to verify.
-        If unspecified, use the underlying default (9).
+            If unspecified, use the underlying default (9).
 
-        @param requireCertificate: If True, do not allow anonymous sessions.
+        @param requireCertificate: Please use a C{trustRoot} keyword argument
+            instead, since it provides the same functionality in a less
+            error-prone way.
 
-        @param verifyOnce: If True, do not re-verify the certificate
-        on session resumption.
+            If L{True}, do not allow anonymous sessions; defaults to L{True}.
+
+        @param verifyOnce: If True, do not re-verify the certificate on session
+            resumption.
 
         @param enableSingleUseKeys: If L{True}, generate a new key whenever
-            ephemeral DH and ECDH parameters are used to prevent small
-            subgroup attacks and to ensure perfect forward secrecy.
+            ephemeral DH and ECDH parameters are used to prevent small subgroup
+            attacks and to ensure perfect forward secrecy.
 
         @param enableSessions: If True, set a session ID on each context.  This
-        allows a shortened handshake to be used when a known client reconnects.
+            allows a shortened handshake to be used when a known client
+            reconnects.
 
         @param fixBrokenPeers: If True, enable various non-spec protocol fixes
-        for broken SSL implementations.  This should be entirely safe,
-        according to the OpenSSL documentation, but YMMV.  This option is now
-        off by default, because it causes problems with connections between
-        peers using OpenSSL 0.9.8a.
+            for broken SSL implementations.  This should be entirely safe,
+            according to the OpenSSL documentation, but YMMV.  This option is
+            now off by default, because it causes problems with connections
+            between peers using OpenSSL 0.9.8a.
 
-        @param enableSessionTickets: If True, enable session ticket extension
-        for session resumption per RFC 5077. Note there is no support for
-        controlling session tickets. This option is off by default, as some
-        server implementations don't correctly process incoming empty session
-        ticket extensions in the hello.
+        @param enableSessionTickets: If L{True}, enable session ticket
+            extension for session resumption per RFC 5077.  Note there is no
+            support for controlling session tickets.  This option is off by
+            default, as some server implementations don't correctly process
+            incoming empty session ticket extensions in the hello.
 
         @param extraCertChain: List of certificates that I{complete} your
             verification chain if the certificate authority that signed your
@@ -731,17 +1307,30 @@ class OpenSSLCertificateOptions(object):
         @type dhParameters: L{DiffieHellmanParameters
             <twisted.internet.ssl.DiffieHellmanParameters>}
 
-        @raise ValueError: when C{privateKey} or C{certificate} are set
-            without setting the respective other.
+        @param trustRoot: Specification of trust requirements of peers.  If
+            this argument is specified, the peer is verified.  It requires a
+            certificate, and that certificate must be signed by one of the
+            certificate authorities specified by this object.
 
+            Note that since this option specifies the same information as
+            C{caCerts}, C{verify}, and C{requireCertificate}, specifying any of
+            those options in combination with this one will raise a
+            L{TypeError}.
+
+        @type trustRoot: L{IOpenSSLTrustRoot}
+
+        @raise ValueError: when C{privateKey} or C{certificate} are set without
+            setting the respective other.
         @raise ValueError: when C{verify} is L{True} but C{caCerts} doesn't
             specify any CA certificates.
-
         @raise ValueError: when C{extraCertChain} is passed without specifying
             C{privateKey} or C{certificate}.
-
         @raise ValueError: when C{acceptableCiphers} doesn't yield any usable
             ciphers for the current platform.
+
+        @raise TypeError: if C{trustRoot} is passed in combination with
+            C{caCert}, C{verify}, or C{requireCertificate}.  Please prefer
+            C{trustRoot} in new code, as its semantics are less tricky.
         """
 
         if (privateKey is None) != (certificate is None):
@@ -791,9 +1380,15 @@ class OpenSSLCertificateOptions(object):
         if fixBrokenPeers:
             self._options |= self._OP_ALL
         self.enableSessionTickets = enableSessionTickets
+
         if not enableSessionTickets:
             self._options |= self._OP_NO_TICKET
         self.dhParameters = dhParameters
+
+        try:
+            self._ecCurve = _OpenSSLECCurve(_defaultCurveName)
+        except NotImplementedError:
+            self._ecCurve = None
 
         if acceptableCiphers is None:
             acceptableCiphers = defaultCiphers
@@ -809,6 +1404,15 @@ class OpenSSLCertificateOptions(object):
                 'Supplied IAcceptableCiphers yielded no usable ciphers '
                 'on this platform.'
             )
+
+        if trustRoot is None:
+            if self.verify:
+                trustRoot = OpenSSLCertificateAuthorities(caCerts)
+        else:
+            self.verify = True
+            self.requireCertificate = True
+            trustRoot = IOpenSSLTrustRoot(trustRoot)
+        self.trustRoot = trustRoot
 
 
     def __getstate__(self):
@@ -852,10 +1456,7 @@ class OpenSSLCertificateOptions(object):
                 verifyFlags |= SSL.VERIFY_FAIL_IF_NO_PEER_CERT
             if self.verifyOnce:
                 verifyFlags |= SSL.VERIFY_CLIENT_ONCE
-            if self.caCerts:
-                store = ctx.get_cert_store()
-                for cert in self.caCerts:
-                    store.add_cert(cert)
+            self.trustRoot._addCACertsToContext(ctx)
 
         # It'd be nice if pyOpenSSL let us pass None here for this behavior (as
         # the underlying OpenSSL API call allows NULL to be passed).  It
@@ -863,7 +1464,6 @@ class OpenSSLCertificateOptions(object):
         def _verifyCallback(conn, cert, errno, depth, preverify_ok):
             return preverify_ok
         ctx.set_verify(verifyFlags, _verifyCallback)
-
         if self.verifyDepth is not None:
             ctx.set_verify_depth(self.verifyDepth)
 
@@ -877,7 +1477,91 @@ class OpenSSLCertificateOptions(object):
             ctx.load_tmp_dh(self.dhParameters._dhFile.path)
         ctx.set_cipher_list(nativeString(self._cipherString))
 
+        if self._ecCurve is not None:
+            try:
+                self._ecCurve.addECKeyToContext(ctx)
+            except BaseException:
+                pass  # ECDHE support is best effort only.
+
         return ctx
+
+
+
+OpenSSLCertificateOptions.__getstate__ = deprecated(
+        Version("Twisted", 14, 1, 0),
+        "a real persistence system")(OpenSSLCertificateOptions.__getstate__)
+OpenSSLCertificateOptions.__setstate__ = deprecated(
+        Version("Twisted", 14, 1, 0),
+        "a real persistence system")(OpenSSLCertificateOptions.__setstate__)
+
+
+
+class _OpenSSLECCurve(FancyEqMixin, object):
+    """
+    A private representation of an OpenSSL ECC curve.
+    """
+    compareAttributes = ("snName", )
+
+    def __init__(self, snName):
+        """
+        @param snName: The name of the curve as used by C{OBJ_sn2nid}.
+        @param snName: L{unicode}
+
+        @raises NotImplementedError: If ECC support is not available.
+        @raises ValueError: If C{snName} is not a supported curve.
+        """
+        self.snName = nativeString(snName)
+
+        # As soon as pyOpenSSL supports ECDHE directly, attempt to use its
+        # APIs first.  See #7033.
+
+        # If pyOpenSSL is based on cryptography.io (0.14+), we use its
+        # bindings directly to set the ECDHE curve.
+        try:
+            binding = self._getBinding()
+            self._lib = binding.lib
+            self._ffi = binding.ffi
+            self._nid = self._lib.OBJ_sn2nid(self.snName.encode('ascii'))
+            if self._nid == self._lib.NID_undef:
+                raise ValueError("Unknown ECC curve.")
+        except AttributeError:
+            raise NotImplementedError(
+                "This version of pyOpenSSL does not support ECC."
+            )
+
+
+    def _getBinding(self):
+        """
+        Attempt to get cryptography's binding instance.
+
+        @raises NotImplementedError: If underlying pyOpenSSL is not based on
+            cryptography.
+
+        @return: cryptograpy bindings.
+        @rtype: C{cryptography.hazmat.bindings.openssl.Binding}
+        """
+        try:
+            from OpenSSL._util import binding
+            return binding
+        except ImportError:
+            raise NotImplementedError(
+                "This version of pyOpenSSL does not support ECC."
+            )
+
+
+    def addECKeyToContext(self, context):
+        """
+        Add an temporary EC key to C{context}.
+
+        @param context: The context to add a key to.
+        @type context: L{OpenSSL.SSL.Context}
+        """
+        ecKey = self._lib.EC_KEY_new_by_curve_name(self._nid)
+        if ecKey == self._ffi.NULL:
+            raise EnvironmentError("EC key creation failed.")
+
+        self._lib.SSL_CTX_set_tmp_ecdh(context._context, ecKey)
+        self._lib.EC_KEY_free(ecKey)
 
 
 
@@ -996,6 +1680,7 @@ defaultCiphers = OpenSSLAcceptableCiphers.fromOpenSSLCipherString(
     "ECDH+AESGCM:DH+AESGCM:ECDH+AES256:DH+AES256:ECDH+AES128:"
     "DH+AES:ECDH+3DES:DH+3DES:RSA+AESGCM:RSA+AES:RSA+3DES:!aNULL:!MD5:!DSS"
 )
+_defaultCurveName = u"prime256v1"
 
 
 

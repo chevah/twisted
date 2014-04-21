@@ -6,7 +6,7 @@
 
 
 import StringIO, os, pdb, sys
-from zope.interface import implements
+from zope.interface import implementer
 from zope.interface.verify import verifyObject
 
 from twisted.trial.itrial import IReporter, ITestCase
@@ -33,12 +33,11 @@ class CapturingDebugger(object):
 
 
 
+@implementer(IReporter)
 class CapturingReporter(object):
     """
     Reporter that keeps a log of all actions performed on it.
     """
-
-    implements(IReporter)
 
     stream = None
     tbformat = None
@@ -890,7 +889,7 @@ class TestMalformedMethod(unittest.SynchronousTestCase):
             pass
         def test_bar():
             pass
-        test_spam = defer.deferredGenerator(test_bar)
+        test_spam = defer.inlineCallbacks(test_bar)
 
     def _test(self, method):
         """

@@ -20,6 +20,7 @@ from twisted.trial.util import suppress as SUPPRESS
 
 from twisted.python.compat import _PY3
 from twisted.python import util
+from twisted.python.reflect import fullyQualifiedName
 from twisted.internet import reactor
 from twisted.internet.interfaces import IReactorProcess
 from twisted.internet.protocol import ProcessProtocol
@@ -28,10 +29,8 @@ from twisted.internet.error import ProcessDone
 
 if _PY3:
     MockOS = None
-    from twisted.python.deprecate import _fullyQualifiedName as fullyQualifiedName
 else:
     from twisted.test.test_process import MockOS
-    from twisted.python.reflect import fullyQualifiedName
 
 
 
@@ -1077,6 +1076,77 @@ class FancyStrMixinTests(unittest.TestCase):
             second = "hello"
         obj = Foo()
         self.assertEqual(str(obj), repr(obj))
+
+
+
+class PadToTest(unittest.TestCase):
+    """
+    Tests for L{util.padTo}.
+    """
+
+    def test_default(self):
+        """
+        C{None} values can be added to a list to cause it to have a certain
+        length.
+        """
+        padded = util.padTo(3, [])
+        self.assertEqual([None] * 3, padded)
+
+
+    def test_specificDefaultValue(self):
+        """
+        A specific value can be added to a list to cause it to have a certain
+        length.
+        """
+        padded = util.padTo(4, [], "x")
+        self.assertEqual(["x"] * 4, padded)
+
+
+    def test_padNonEmptyList(self):
+        """
+        A list which already has some items has the padding value added after
+        those items.
+        """
+        padded = util.padTo(3, [1, 2], "z")
+        self.assertEqual([1, 2, "z"], padded)
+
+
+    def test_padToSmallerSize(self):
+        """
+        L{util.padTo} can't pad a list if the size requested is smaller than
+        the size of the list to pad.
+        """
+        self.assertRaises(ValueError, util.padTo, 1, [1, 2])
+
+
+    def test_alreadyPadded(self):
+        """
+        If the list is already the length indicated by the padding argument
+        then a list with the same value is returned.
+        """
+        items = [1, 2]
+        padded = util.padTo(len(items), items)
+        self.assertEqual(items, padded)
+
+
+    def test_alreadyPaddedCopies(self):
+        """
+        If the list is already the length indicated by the padding argument
+        then the return value is a copy of the input.
+        """
+        items = [1, 2]
+        padded = util.padTo(len(items), items)
+        self.assertIsNot(padded, items)
+
+
+    def test_makeCopy(self):
+        """
+        L{util.padTo} doesn't modify the input list but makes a copy.
+        """
+        items = []
+        util.padTo(4, items)
+        self.assertEqual([], items)
+
 
 if _PY3:
     del (SwitchUIDTest, SearchUpwardsTest, RunAsEffectiveUserTests,

@@ -15,22 +15,34 @@ from zope.interface import implementer
 try:
     from OpenSSL import SSL
     from OpenSSL.crypto import PKey, X509
-    from OpenSSL.crypto import TYPE_RSA
-    from twisted.internet import _sslverify as sslverify
-
+    from OpenSSL.crypto import TYPE_RSA, FILETYPE_PEM
     skipSSL = False
+    if hasattr(SSL.Context, "set_tlsext_servername_callback"):
+        skipSNI = False
+    else:
+        skipSNI = "PyOpenSSL 0.13 or greater required for SNI support."
 except ImportError:
     skipSSL = "OpenSSL is required for SSL tests."
+    skipSNI = skipSSL
 
+from twisted.test.iosim import connectedServerAndClient
+
+from twisted.internet.error import ConnectionClosed
 from twisted.python.compat import nativeString
 from twisted.python.constants import NamedConstant, Names
 from twisted.python.filepath import FilePath
-from twisted.trial import unittest
+
+from twisted.trial import unittest, util
 from twisted.internet import protocol, defer, reactor
 
 from twisted.internet.error import CertificateError, ConnectionLost
 from twisted.internet import interfaces
+from twisted.python.versions import Version
 
+if not skipSSL:
+    from twisted.internet.ssl import platformTrust, VerificationError
+    from twisted.internet import _sslverify as sslverify
+    from twisted.protocols.tls import TLSMemoryBIOFactory
 
 # A couple of static PEM-format certificates to be used by various tests.
 A_HOST_CERTIFICATE_PEM = """
@@ -104,6 +116,129 @@ def makeCertificate(**kw):
 
 
 
+def certificatesForAuthorityAndServer(commonName=b'example.com'):
+    """
+    Create a self-signed CA certificate and server certificate signed by the
+    CA.
+
+    @param commonName: The C{commonName} to embed in the certificate.
+    @type commonName: L{bytes}
+
+    @return: a 2-tuple of C{(certificate_authority_certificate,
+        server_certificate)}
+    @rtype: L{tuple} of (L{sslverify.Certificate},
+        L{sslverify.PrivateCertificate})
+    """
+    serverDN = sslverify.DistinguishedName(commonName=commonName)
+    serverKey = sslverify.KeyPair.generate()
+    serverCertReq = serverKey.certificateRequest(serverDN)
+
+    caDN = sslverify.DistinguishedName(commonName=b'CA')
+    caKey= sslverify.KeyPair.generate()
+    caCertReq = caKey.certificateRequest(caDN)
+    caSelfCertData = caKey.signCertificateRequest(
+            caDN, caCertReq, lambda dn: True, 516)
+    caSelfCert = caKey.newCertificate(caSelfCertData)
+
+    serverCertData = caKey.signCertificateRequest(
+            caDN, serverCertReq, lambda dn: True, 516)
+    serverCert = serverKey.newCertificate(serverCertData)
+    return caSelfCert, serverCert
+
+
+
+def loopbackTLSConnection(trustRoot, privateKeyFile, chainedCertFile=None):
+    """
+    Create a loopback TLS connection with the given trust and keys.
+
+    @param trustRoot: the C{trustRoot} argument for the client connection's
+        context.
+    @type trustRoot: L{sslverify.IOpenSSLTrustRoot}
+
+    @param privateKeyFile: The name of the file containing the private key.
+    @type privateKeyFile: L{str} (native string; file name)
+
+    @param chainedCertFile: The name of the chained certificate file.
+    @type chainedCertFile: L{str} (native string; file name)
+
+    @return: 3-tuple of server-protocol, client-protocol, and L{IOPump}
+    @rtype: L{tuple}
+    """
+    class ContextFactory(object):
+        def getContext(self):
+            """
+            Create a context for the server side of the connection.
+
+            @return: an SSL context using a certificate and key.
+            @rtype: C{OpenSSL.SSL.Context}
+            """
+            ctx = SSL.Context(SSL.TLSv1_METHOD)
+            if chainedCertFile is not None:
+                ctx.use_certificate_chain_file(chainedCertFile)
+            ctx.use_privatekey_file(privateKeyFile)
+            # Let the test author know if they screwed something up.
+            ctx.check_privatekey()
+            return ctx
+
+    class GreetingServer(protocol.Protocol):
+        greeting = b"greetings!"
+        def connectionMade(self):
+            self.transport.write(self.greeting)
+
+    class ListeningClient(protocol.Protocol):
+        data = b''
+        lostReason = None
+        def dataReceived(self, data):
+            self.data += data
+        def connectionLost(self, reason):
+            self.lostReason = reason
+
+    serverOpts = ContextFactory()
+    clientOpts = sslverify.OpenSSLCertificateOptions(trustRoot=trustRoot)
+
+    clientFactory = TLSMemoryBIOFactory(
+        clientOpts, isClient=True,
+        wrappedFactory=protocol.Factory.forProtocol(GreetingServer)
+    )
+    serverFactory = TLSMemoryBIOFactory(
+        serverOpts, isClient=False,
+        wrappedFactory=protocol.Factory.forProtocol(ListeningClient)
+    )
+
+    sProto, cProto, pump = connectedServerAndClient(
+        lambda: serverFactory.buildProtocol(None),
+        lambda: clientFactory.buildProtocol(None)
+    )
+    return sProto, cProto, pump
+
+
+
+def pathContainingDumpOf(testCase, *dumpables):
+    """
+    Create a temporary file to store some serializable-as-PEM objects in, and
+    return its name.
+
+    @param testCase: a test case to use for generating a temporary directory.
+    @type testCase: L{twisted.trial.unittest.TestCase}
+
+    @param dumpables: arguments are objects from pyOpenSSL with a C{dump}
+        method, taking a pyOpenSSL file-type constant, such as
+        L{OpenSSL.crypto.FILETYPE_PEM} or L{OpenSSL.crypto.FILETYPE_ASN1}.
+    @type dumpables: L{tuple} of L{object} with C{dump} method taking L{int}
+        returning L{bytes}
+
+    @return: the path to a file where all of the dumpables were dumped in PEM
+        format.
+    @rtype: L{str}
+    """
+    fname = testCase.mktemp()
+    with open(fname, "wb") as f:
+        for dumpable in dumpables:
+            f.write(dumpable.dump(FILETYPE_PEM))
+    return fname
+
+
+
 class DataCallbackProtocol(protocol.Protocol):
     def dataReceived(self, data):
         d, self.factory.onData = self.factory.onData, None
@@ -135,52 +270,123 @@ class FakeContext(object):
     U{pyOpenSSL bug<https://bugs.launchpad.net/pyopenssl/+bug/1173899>}.
 
     @ivar _method: See C{method} parameter of L{__init__}.
+
     @ivar _options: C{int} of C{OR}ed values from calls of L{set_options}.
+
     @ivar _certificate: Set by L{use_certificate}.
+
     @ivar _privateKey: Set by L{use_privatekey}.
+
     @ivar _verify: Set by L{set_verify}.
+
     @ivar _verifyDepth: Set by L{set_verify_depth}.
+
     @ivar _sessionID: Set by L{set_session_id}.
+
     @ivar _extraCertChain: Accumulated C{list} of all extra certificates added
         by L{add_extra_chain_cert}.
+
     @ivar _cipherList: Set by L{set_cipher_list}.
+
     @ivar _dhFilename: Set by L{load_tmp_dh}.
+
+    @ivar _defaultVerifyPathsSet: Set by L{set_default_verify_paths}
     """
     _options = 0
 
     def __init__(self, method):
         self._method = method
         self._extraCertChain = []
+        self._defaultVerifyPathsSet = False
+
 
     def set_options(self, options):
         self._options |= options
 
+
     def use_certificate(self, certificate):
         self._certificate = certificate
+
 
     def use_privatekey(self, privateKey):
         self._privateKey = privateKey
 
+
     def check_privatekey(self):
         return None
+
 
     def set_verify(self, flags, callback):
         self._verify = flags, callback
 
+
     def set_verify_depth(self, depth):
         self._verifyDepth = depth
+
 
     def set_session_id(self, sessionID):
         self._sessionID = sessionID
 
+
     def add_extra_chain_cert(self, cert):
         self._extraCertChain.append(cert)
+
 
     def set_cipher_list(self, cipherList):
         self._cipherList = cipherList
 
+
     def load_tmp_dh(self, dhfilename):
         self._dhFilename = dhfilename
+
+
+    def set_default_verify_paths(self):
+        """
+        Set the default paths for the platform.
+        """
+        self._defaultVerifyPathsSet = True
+
+
+
+class ClientOptions(unittest.SynchronousTestCase):
+    """
+    Tests for L{sslverify.optionsForClientTLS}.
+    """
+    if skipSSL:
+        skip = skipSSL
+
+    def test_extraKeywords(self):
+        """
+        When passed a keyword parameter other than C{extraCertificateOptions},
+        L{sslverify.optionsForClientTLS} raises an exception just like a
+        normal Python function would.
+        """
+        error = self.assertRaises(
+            TypeError,
+            sslverify.optionsForClientTLS,
+            hostname=u'alpha', someRandomThing=u'beta',
+        )
+        self.assertEqual(
+            str(error),
+            "optionsForClientTLS() got an unexpected keyword argument "
+            "'someRandomThing'"
+        )
+
+
+    def test_bytesFailFast(self):
+        """
+        If you pass L{bytes} as the hostname to
+        L{sslverify.optionsForClientTLS} it immediately raises a L{TypeError}.
+        """
+        error = self.assertRaises(
+            TypeError,
+            sslverify.optionsForClientTLS, b'not-actually-a-hostname.com'
+        )
+        expectedText = (
+            "optionsForClientTLS requires text for host names, not " +
+            bytes.__name__
+        )
+        self.assertEqual(str(error), expectedText)
 
 
 
@@ -292,6 +498,26 @@ class OpenSSLOptions(unittest.TestCase):
             ValueError,
             sslverify.OpenSSLCertificateOptions,
             privateKey=self.sKey, certificate=self.sCert, verify=True
+        )
+
+
+    def test_constructorDoesNotAllowLegacyWithTrustRoot(self):
+        """
+        C{verify}, C{requireCertificate}, and C{caCerts} must not be specified
+        by the caller (to be I{any} value, even the default!) when specifying
+        C{trustRoot}.
+        """
+        self.assertRaises(
+            TypeError,
+            sslverify.OpenSSLCertificateOptions,
+            privateKey=self.sKey, certificate=self.sCert,
+            verify=True, trustRoot=None, caCerts=self.caCerts,
+        )
+        self.assertRaises(
+            TypeError,
+            sslverify.OpenSSLCertificateOptions,
+            privateKey=self.sKey, certificate=self.sCert,
+            trustRoot=None, requireCertificate=True,
         )
 
 
@@ -490,6 +716,58 @@ class OpenSSLOptions(unittest.TestCase):
         )
 
 
+    def test_ecDoesNotBreakConstructor(self):
+        """
+        Missing ECC does not break the constructor and sets C{_ecCurve} to
+        L{None}.
+        """
+        def raiser(self):
+            raise NotImplementedError
+        self.patch(sslverify._OpenSSLECCurve, "_getBinding", raiser)
+
+        opts = sslverify.OpenSSLCertificateOptions(
+            privateKey=self.sKey,
+            certificate=self.sCert,
+        )
+        self.assertIs(None, opts._ecCurve)
+
+
+    def test_ecNeverBreaksGetContext(self):
+        """
+        ECDHE support is best effort only and errors are ignored.
+        """
+        opts = sslverify.OpenSSLCertificateOptions(
+            privateKey=self.sKey,
+            certificate=self.sCert,
+        )
+        opts._ecCurve = object()
+        ctx = opts.getContext()
+        self.assertIsInstance(ctx, SSL.Context)
+
+
+    def test_ecSuccessWithRealBindings(self):
+        """
+        Integration test that checks the positive code path to ensure that we
+        use the API properly.
+        """
+        try:
+            defaultCurve = sslverify._OpenSSLECCurve(
+                sslverify._defaultCurveName
+            )
+        except NotImplementedError:
+            raise unittest.SkipTest(
+                "Underlying pyOpenSSL is not based on cryptography."
+            )
+        opts = sslverify.OpenSSLCertificateOptions(
+            privateKey=self.sKey,
+            certificate=self.sCert,
+        )
+        self.assertEqual(defaultCurve, opts._ecCurve)
+        # Exercise positive code path.  getContext swallows errors so we do it
+        # explicitly by hand.
+        opts._ecCurve.addECKeyToContext(opts.getContext())
+
+
     def test_abbreviatingDistinguishedNames(self):
         """
         Check that abbreviations used in certificates correctly map to
@@ -615,6 +893,10 @@ class OpenSSLOptions(unittest.TestCase):
         self.assertEqual(opts.enableSessions, False)
         self.assertEqual(opts.fixBrokenPeers, True)
         self.assertEqual(opts.enableSessionTickets, True)
+
+    test_certificateOptionsSerialization.suppress = [
+        util.suppress(category = DeprecationWarning,
+            message='twisted\.internet\._sslverify\.*__[gs]etstate__')]
 
 
     def test_certificateOptionsSessionTickets(self):
@@ -783,6 +1065,33 @@ class OpenSSLOptions(unittest.TestCase):
 
 
 
+class DeprecationTests(unittest.SynchronousTestCase):
+    """
+    Tests for deprecation of L{sslverify.OpenSSLCertificateOptions}'s support
+    of the pickle protocol.
+    """
+    if skipSSL:
+        skip = skipSSL
+
+    def test_getstateDeprecation(self):
+        """
+        L{sslverify.OpenSSLCertificateOptions.__getstate__} is deprecated.
+        """
+        self.callDeprecated(
+            (Version("Twisted", 14, 1, 0), "a real persistence system"),
+            sslverify.OpenSSLCertificateOptions().__getstate__)
+
+
+    def test_setstateDeprecation(self):
+        """
+        L{sslverify.OpenSSLCertificateOptions.__setstate__} is deprecated.
+        """
+        self.callDeprecated(
+            (Version("Twisted", 14, 1, 0), "a real persistence system"),
+            sslverify.OpenSSLCertificateOptions().__setstate__, {})
+
+
+
 class ProtocolVersion(Names):
     """
     L{ProtocolVersion} provides constants representing each version of the
@@ -875,6 +1184,488 @@ class ProtocolVersionTests(unittest.TestCase):
                  ProtocolVersion.TLSv1_2]),
             self._protocols(sslverify.OpenSSLCertificateOptions(
                     method=SSL.SSLv23_METHOD)))
+
+
+
+class TrustRootTests(unittest.TestCase):
+    """
+    Tests for L{sslverify.OpenSSLCertificateOptions}' C{trustRoot} argument,
+    L{sslverify.platformTrust}, and their interactions.
+    """
+    if skipSSL:
+        skip = skipSSL
+
+    def test_caCertsPlatformDefaults(self):
+        """
+        Specifying a C{trustRoot} of L{sslverify.OpenSSLDefaultPaths} when
+        initializing L{sslverify.OpenSSLCertificateOptions} loads the
+        platform-provided trusted certificates via C{set_default_verify_paths}.
+        """
+        opts = sslverify.OpenSSLCertificateOptions(
+            trustRoot=sslverify.OpenSSLDefaultPaths(),
+        )
+        fc = FakeContext(SSL.TLSv1_METHOD)
+        opts._contextFactory = lambda method: fc
+        opts.getContext()
+        self.assertTrue(fc._defaultVerifyPathsSet)
+
+
+    def test_trustRootPlatformRejectsUntrustedCA(self):
+        """
+        Specifying a C{trustRoot} of L{platformTrust} when initializing
+        L{sslverify.OpenSSLCertificateOptions} causes certificates issued by a
+        newly created CA to be rejected by an SSL connection using these
+        options.
+
+        Note that this test should I{always} pass, even on platforms where the
+        CA certificates are not installed, as long as L{platformTrust} rejects
+        completely invalid / unknown root CA certificates.  This is simply a
+        smoke test to make sure that verification is happening at all.
+        """
+        caSelfCert, serverCert = certificatesForAuthorityAndServer()
+        chainedCert = pathContainingDumpOf(self, serverCert, caSelfCert)
+        privateKey = pathContainingDumpOf(self, serverCert.privateKey)
+
+        sProto, cProto, pump = loopbackTLSConnection(
+            trustRoot=platformTrust(),
+            privateKeyFile=privateKey,
+            chainedCertFile=chainedCert,
+        )
+        # No data was received.
+        self.assertEqual(cProto.wrappedProtocol.data, b'')
+
+        # It was an L{SSL.Error}.
+        self.assertEqual(cProto.wrappedProtocol.lostReason.type, SSL.Error)
+
+        # Some combination of OpenSSL and PyOpenSSL is bad at reporting errors.
+        err = cProto.wrappedProtocol.lostReason.value
+        self.assertEqual(err.args[0][0][2], 'tlsv1 alert unknown ca')
+
+
+    def test_trustRootSpecificCertificate(self):
+        """
+        Specifying a L{Certificate} object for L{trustRoot} will result in that
+        certificate being the only trust root for a client.
+        """
+        caCert, serverCert = certificatesForAuthorityAndServer()
+        otherCa, otherServer = certificatesForAuthorityAndServer()
+        sProto, cProto, pump = loopbackTLSConnection(
+            trustRoot=caCert,
+            privateKeyFile=pathContainingDumpOf(self, serverCert.privateKey),
+            chainedCertFile=pathContainingDumpOf(self, serverCert),
+        )
+        pump.flush()
+        self.assertIs(cProto.wrappedProtocol.lostReason, None)
+        self.assertEqual(cProto.wrappedProtocol.data,
+                         sProto.wrappedProtocol.greeting)
+
+
+
+class ServiceIdentityTests(unittest.SynchronousTestCase):
+    """
+    Tests for the verification of the peer's service's identity via the
+    C{hostname} argument to L{sslverify.OpenSSLCertificateOptions}.
+    """
+
+    if skipSSL:
+        skip = skipSSL
+
+    def serviceIdentitySetup(self, clientHostname, serverHostname,
+                             serverContextSetup=lambda ctx: None,
+                             validCertificate=True,
+                             clientPresentsCertificate=False,
+                             validClientCertificate=True,
+                             serverVerifies=False,
+                             buggyInfoCallback=False,
+                             fakePlatformTrust=False,
+                             useDefaultTrust=False):
+        """
+        Connect a server and a client.
+
+        @param clientHostname: The I{client's idea} of the server's hostname;
+            passed as the C{hostname} to the
+            L{sslverify.OpenSSLCertificateOptions} instance.
+        @type clientHostname: L{unicode}
+
+        @param serverHostname: The I{server's own idea} of the server's
+            hostname; present in the certificate presented by the server.
+        @type serverHostname: L{unicode}
+
+        @param serverContextSetup: a 1-argument callable invoked with the
+            L{OpenSSL.SSL.Context} after it's produced.
+        @type serverContextSetup: L{callable} taking L{OpenSSL.SSL.Context}
+            returning L{NoneType}.
+
+        @param validCertificate: Is the server's certificate valid?  L{True} if
+            so, L{False} otherwise.
+        @type validCertificate: L{bool}
+
+        @param clientPresentsCertificate: Should the client present a
+            certificate to the server?  Defaults to 'no'.
+        @type clientPresentsCertificate: L{bool}
+
+        @param validClientCertificate: If the client presents a certificate,
+            should it actually be a valid one, i.e. signed by the same CA that
+            the server is checking?  Defaults to 'yes'.
+        @type validClientCertificate: L{bool}
+
+        @param serverVerifies: Should the server verify the client's
+            certificate?  Defaults to 'no'.
+        @type serverVerifies: L{bool}
+
+        @param buggyInfoCallback: Should we patch the implementation so that
+            the C{info_callback} passed to OpenSSL to have a bug and raise an
+            exception (L{ZeroDivisionError})?  Defaults to 'no'.
+        @type buggyInfoCallback: L{bool}
+
+        @param fakePlatformTrust: Should we fake the platformTrust to be the
+            same as our fake server certificate authority, so that we can test
+            it's being used?  Defaults to 'no' and we just pass platform trust.
+        @type fakePlatformTrust: L{bool}
+
+        @param useDefaultTrust: Should we avoid passing the C{trustRoot} to
+            L{ssl.optionsForClientTLS}?  Defaults to 'no'.
+        @type useDefaultTrust: L{bool}
+
+        @return: see L{connectedServerAndClient}.
+        @rtype: see L{connectedServerAndClient}.
+        """
+        serverIDNA = sslverify._idnaBytes(serverHostname)
+        serverCA, serverCert = certificatesForAuthorityAndServer(serverIDNA)
+        other = {}
+        passClientCert = None
+        clientCA, clientCert = certificatesForAuthorityAndServer(u'client')
+        if serverVerifies:
+            other.update(trustRoot=clientCA)
+
+        if clientPresentsCertificate:
+            if validClientCertificate:
+                passClientCert = clientCert
+            else:
+                bogusCA, bogus = certificatesForAuthorityAndServer(u'client')
+                passClientCert = bogus
+
+        serverOpts = sslverify.OpenSSLCertificateOptions(
+            privateKey=serverCert.privateKey.original,
+            certificate=serverCert.original,
+            **other
+        )
+        serverContextSetup(serverOpts.getContext())
+        if not validCertificate:
+            serverCA, otherServer = certificatesForAuthorityAndServer(
+                serverIDNA
+            )
+        if buggyInfoCallback:
+            def broken(*a, **k):
+                """
+                Raise an exception.
+
+                @param a: Arguments for an C{info_callback}
+
+                @param k: Keyword arguments for an C{info_callback}
+                """
+                1 / 0
+            self.patch(
+                sslverify.ClientTLSOptions, "_identityVerifyingInfoCallback",
+                broken,
+            )
+
+        signature = {'hostname': clientHostname}
+        if passClientCert:
+            signature.update(clientCertificate=passClientCert)
+        if not useDefaultTrust:
+            signature.update(trustRoot=serverCA)
+        if fakePlatformTrust:
+            self.patch(sslverify, "platformTrust", lambda: serverCA)
+
+        clientOpts = sslverify.optionsForClientTLS(**signature)
+
+        class GreetingServer(protocol.Protocol):
+            greeting = b"greetings!"
+            lostReason = None
+            data = b''
+            def connectionMade(self):
+                self.transport.write(self.greeting)
+            def dataReceived(self, data):
+                self.data += data
+            def connectionLost(self, reason):
+                self.lostReason = reason
+
+        class GreetingClient(protocol.Protocol):
+            greeting = b'cheerio!'
+            data = b''
+            lostReason = None
+            def connectionMade(self):
+                self.transport.write(self.greeting)
+            def dataReceived(self, data):
+                self.data += data
+            def connectionLost(self, reason):
+                self.lostReason = reason
+
+        self.serverOpts = serverOpts
+        self.clientOpts = clientOpts
+
+        clientFactory = TLSMemoryBIOFactory(
+            clientOpts, isClient=True,
+            wrappedFactory=protocol.Factory.forProtocol(GreetingClient)
+        )
+        serverFactory = TLSMemoryBIOFactory(
+            serverOpts, isClient=False,
+            wrappedFactory=protocol.Factory.forProtocol(GreetingServer)
+        )
+        return connectedServerAndClient(
+            lambda: serverFactory.buildProtocol(None),
+            lambda: clientFactory.buildProtocol(None),
+        )
+
+
+    def test_invalidHostname(self):
+        """
+        When a certificate containing an invalid hostname is received from the
+        server, the connection is immediately dropped.
+        """
+        cProto, sProto, pump = self.serviceIdentitySetup(
+            u"wrong-host.example.com",
+            u"correct-host.example.com",
+        )
+        self.assertEqual(cProto.wrappedProtocol.data, b'')
+        self.assertEqual(sProto.wrappedProtocol.data, b'')
+
+        cErr = cProto.wrappedProtocol.lostReason.value
+        sErr = sProto.wrappedProtocol.lostReason.value
+
+        self.assertIsInstance(cErr, VerificationError)
+        self.assertIsInstance(sErr, ConnectionClosed)
+
+
+    def test_validHostname(self):
+        """
+        Whenever a valid certificate containing a valid hostname is received,
+        connection proceeds normally.
+        """
+        cProto, sProto, pump = self.serviceIdentitySetup(
+            u"valid.example.com",
+            u"valid.example.com",
+        )
+        self.assertEqual(cProto.wrappedProtocol.data,
+                         b'greetings!')
+
+        cErr = cProto.wrappedProtocol.lostReason
+        sErr = sProto.wrappedProtocol.lostReason
+        self.assertIdentical(cErr, None)
+        self.assertIdentical(sErr, None)
+
+
+    def test_validHostnameInvalidCertificate(self):
+        """
+        When an invalid certificate containing a perfectly valid hostname is
+        received, the connection is aborted with an OpenSSL error.
+        """
+        cProto, sProto, pump = self.serviceIdentitySetup(
+            u"valid.example.com",
+            u"valid.example.com",
+            validCertificate=False,
+        )
+
+        self.assertEqual(cProto.wrappedProtocol.data, b'')
+        self.assertEqual(sProto.wrappedProtocol.data, b'')
+
+        cErr = cProto.wrappedProtocol.lostReason.value
+        sErr = sProto.wrappedProtocol.lostReason.value
+
+        self.assertIsInstance(cErr, SSL.Error)
+        self.assertIsInstance(sErr, SSL.Error)
+
+
+    def test_realCAsBetterNotSignOurBogusTestCerts(self):
+        """
+        If we use the default trust from the platform, our dinky certificate
+        should I{really} fail.
+        """
+        cProto, sProto, pump = self.serviceIdentitySetup(
+            u"valid.example.com",
+            u"valid.example.com",
+            validCertificate=False,
+            useDefaultTrust=True,
+        )
+
+        self.assertEqual(cProto.wrappedProtocol.data, b'')
+        self.assertEqual(sProto.wrappedProtocol.data, b'')
+
+        cErr = cProto.wrappedProtocol.lostReason.value
+        sErr = sProto.wrappedProtocol.lostReason.value
+
+        self.assertIsInstance(cErr, SSL.Error)
+        self.assertIsInstance(sErr, SSL.Error)
+
+
+    def test_butIfTheyDidItWouldWork(self):
+        """
+        L{ssl.optionsForClientTLS} should be using L{ssl.platformTrust} by
+        default, so if we fake that out then it should trust ourselves again.
+        """
+        cProto, sProto, pump = self.serviceIdentitySetup(
+            u"valid.example.com",
+            u"valid.example.com",
+            useDefaultTrust=True,
+            fakePlatformTrust=True,
+        )
+        self.assertEqual(cProto.wrappedProtocol.data,
+                         b'greetings!')
+
+        cErr = cProto.wrappedProtocol.lostReason
+        sErr = sProto.wrappedProtocol.lostReason
+        self.assertIdentical(cErr, None)
+        self.assertIdentical(sErr, None)
+
+
+    def test_clientPresentsCertificate(self):
+        """
+        When the server verifies and the client presents a valid certificate
+        for that verification by passing it to
+        L{sslverify.optionsForClientTLS}, communication proceeds.
+        """
+        cProto, sProto, pump = self.serviceIdentitySetup(
+            u"valid.example.com",
+            u"valid.example.com",
+            validCertificate=True,
+            serverVerifies=True,
+            clientPresentsCertificate=True,
+        )
+
+        self.assertEqual(cProto.wrappedProtocol.data,
+                         b'greetings!')
+
+        cErr = cProto.wrappedProtocol.lostReason
+        sErr = sProto.wrappedProtocol.lostReason
+        self.assertIdentical(cErr, None)
+        self.assertIdentical(sErr, None)
+
+
+    def test_clientPresentsBadCertificate(self):
+        """
+        When the server verifies and the client presents an invalid certificate
+        for that verification by passing it to
+        L{sslverify.optionsForClientTLS}, the connection cannot be established
+        with an SSL error.
+        """
+        cProto, sProto, pump = self.serviceIdentitySetup(
+            u"valid.example.com",
+            u"valid.example.com",
+            validCertificate=True,
+            serverVerifies=True,
+            validClientCertificate=False,
+            clientPresentsCertificate=True,
+        )
+
+        self.assertEqual(cProto.wrappedProtocol.data,
+                         b'')
+
+        cErr = cProto.wrappedProtocol.lostReason.value
+        sErr = sProto.wrappedProtocol.lostReason.value
+
+        self.assertIsInstance(cErr, SSL.Error)
+        self.assertIsInstance(sErr, SSL.Error)
+
+
+    def test_hostnameIsIndicated(self):
+        """
+        Specifying the C{hostname} argument to L{CertificateOptions} also sets
+        the U{Server Name Extension
+        <https://en.wikipedia.org/wiki/Server_Name_Indication>} TLS indication
+        field to the correct value.
+        """
+        names = []
+        def setupServerContext(ctx):
+            def servername_received(conn):
+                names.append(conn.get_servername().decode("ascii"))
+            ctx.set_tlsext_servername_callback(servername_received)
+        cProto, sProto, pump = self.serviceIdentitySetup(
+            u"valid.example.com",
+            u"valid.example.com",
+            setupServerContext
+        )
+        self.assertEqual(names, [u"valid.example.com"])
+
+    test_hostnameIsIndicated.skip = skipSNI
+
+
+    def test_hostnameEncoding(self):
+        """
+        Hostnames are encoded as IDNA.
+        """
+        names = []
+        hello = u"h\N{LATIN SMALL LETTER A WITH ACUTE}llo.example.com"
+        def setupServerContext(ctx):
+            def servername_received(conn):
+                serverIDNA = sslverify._idnaText(conn.get_servername())
+                names.append(serverIDNA)
+            ctx.set_tlsext_servername_callback(servername_received)
+        cProto, sProto, pump = self.serviceIdentitySetup(
+            hello, hello, setupServerContext
+        )
+        self.assertEqual(names, [hello])
+        self.assertEqual(cProto.wrappedProtocol.data,
+                         b'greetings!')
+
+        cErr = cProto.wrappedProtocol.lostReason
+        sErr = sProto.wrappedProtocol.lostReason
+        self.assertIdentical(cErr, None)
+        self.assertIdentical(sErr, None)
+
+    test_hostnameEncoding.skip = skipSNI
+
+
+    def test_fallback(self):
+        """
+        L{sslverify.simpleVerifyHostname} checks string equality on the
+        commonName of a connection's certificate's subject, doing nothing if it
+        matches and raising L{VerificationError} if it doesn't.
+        """
+        name = 'something.example.com'
+        class Connection(object):
+            def get_peer_certificate(self):
+                """
+                Fake of L{OpenSSL.SSL.Connection.get_peer_certificate}.
+
+                @return: A certificate with a known common name.
+                @rtype: L{OpenSSL.crypto.X509}
+                """
+                cert = X509()
+                cert.get_subject().commonName = name
+                return cert
+        conn = Connection()
+        self.assertIdentical(
+            sslverify.simpleVerifyHostname(conn, u'something.example.com'),
+            None
+        )
+        self.assertRaises(
+            sslverify.SimpleVerificationError,
+            sslverify.simpleVerifyHostname, conn, u'nonsense'
+        )
+
+    def test_surpriseFromInfoCallback(self):
+        """
+        pyOpenSSL isn't always so great about reporting errors.  If one occurs
+        in the verification info callback, it should be logged and the
+        connection should be shut down (if possible, anyway; the app_data could
+        be clobbered but there's no point testing for that).
+        """
+        cProto, sProto, pump = self.serviceIdentitySetup(
+            u"correct-host.example.com",
+            u"correct-host.example.com",
+            buggyInfoCallback=True,
+        )
+        self.assertEqual(cProto.wrappedProtocol.data, b'')
+        self.assertEqual(sProto.wrappedProtocol.data, b'')
+
+        cErr = cProto.wrappedProtocol.lostReason.value
+        sErr = sProto.wrappedProtocol.lostReason.value
+
+        self.assertIsInstance(cErr, ZeroDivisionError)
+        self.assertIsInstance(sErr, ConnectionClosed)
+        errors = self.flushLoggedErrors(ZeroDivisionError)
+        self.assertTrue(errors)
 
 
 
@@ -1142,3 +1933,289 @@ class TestDiffieHellmanParameters(unittest.TestCase):
             self.filePath
         )
         self.assertEqual(self.filePath, params._dhFile)
+
+
+
+class FakeECKey(object):
+    """
+    An introspectable fake of a key.
+
+    @ivar _nid: A free form nid.
+    """
+    def __init__(self, nid):
+        self._nid = nid
+
+
+
+class FakeNID(object):
+    """
+    An introspectable fake of a NID.
+
+    @ivar _snName: A free form sn name.
+    """
+    def __init__(self, snName):
+        self._snName = snName
+
+
+
+class FakeLib(object):
+    """
+    An introspectable fake of cryptography's lib object.
+
+    @ivar _createdKey: A set of keys that have been created by this instance.
+    @type _createdKey: L{set} of L{FakeKey}
+
+    @cvar NID_undef: A symbolic constant for undefined NIDs.
+    @type NID_undef: L{FakeNID}
+    """
+    NID_undef = FakeNID("undef")
+
+    def __init__(self):
+        self._createdKeys = set()
+
+
+    def OBJ_sn2nid(self, snName):
+        """
+        Create a L{FakeNID} with C{snName} and return it.
+
+        @param snName: a free form name that gets passed to the constructor
+            of L{FakeNID}.
+
+        @return: a new L{FakeNID}.
+        @rtype: L{FakeNID}.
+        """
+        return FakeNID(snName)
+
+
+    def EC_KEY_new_by_curve_name(self, nid):
+        """
+        Create a L{FakeECKey}, save it to C{_createdKeys} and return it.
+
+        @param nid: an arbitrary object that is passed to the constructor of
+            L{FakeECKey}.
+
+        @return: a new L{FakeECKey}
+        @rtype: L{FakeECKey}
+        """
+        key = FakeECKey(nid)
+        self._createdKeys.add(key)
+        return key
+
+
+    def EC_KEY_free(self, key):
+        """
+        Remove C{key} from C{_createdKey}.
+
+        @param key: a key object to be freed; i.e. removed from
+            C{_createdKeys}.
+
+        @raises ValueError: If C{key} is not in C{_createdKeys} and thus not
+            created by us.
+        """
+        try:
+            self._createdKeys.remove(key)
+        except KeyError:
+            raise ValueError("Unallocated EC key attempted to free.")
+
+
+    def SSL_CTX_set_tmp_ecdh(self, ffiContext, key):
+        """
+        Does not do anything.
+
+        @param ffiContext: ignored
+        @param key: ignored
+        """
+
+
+
+class TestFakeLib(unittest.TestCase):
+    """
+    Tests for FakeLib
+    """
+    def test_objSn2Nid(self):
+        """
+        Returns a L{FakeNID} with correct name.
+        """
+        nid = FakeNID("test")
+        self.assertEqual("test", nid._snName)
+
+
+    def test_emptyKeys(self):
+        """
+        A new L{FakeLib} has an empty set for created keys.
+        """
+        self.assertEqual(set(), FakeLib()._createdKeys)
+
+
+    def test_newKey(self):
+        """
+        If a new key is created, it's added to C{_createdKeys}.
+        """
+        lib = FakeLib()
+        key = lib.EC_KEY_new_by_curve_name(FakeNID("name"))
+        self.assertEqual(set([key]), lib._createdKeys)
+
+
+    def test_freeUnknownKey(self):
+        """
+        Raise L{ValueError} if an unknown key is attempted to be freed.
+        """
+        key = FakeECKey(object())
+        self.assertRaises(
+            ValueError,
+            FakeLib().EC_KEY_free, key
+        )
+
+
+    def test_freeKnownKey(self):
+        """
+        Freeing an allocated key removes it from C{_createdKeys}.
+        """
+        lib = FakeLib()
+        key = lib.EC_KEY_new_by_curve_name(FakeNID("name"))
+        lib.EC_KEY_free(key)
+        self.assertEqual(set(), lib._createdKeys)
+
+
+
+class FakeFFI(object):
+    """
+    A fake of a cryptography's ffi object.
+
+    @cvar NULL: Symbolic constant for CFFI's NULL objects.
+    """
+    NULL = object()
+
+
+
+class FakeBinding(object):
+    """
+    A fake of cryptography's binding object.
+
+    @type lib: L{FakeLib}
+    @type ffi: L{FakeFFI}
+    """
+    def __init__(self, lib=None, ffi=None):
+        self.lib = lib or FakeLib()
+        self.ffi = ffi or FakeFFI()
+
+
+
+class TestECCurve(unittest.TestCase):
+    """
+    Tests for twisted.internet._sslverify.OpenSSLECCurve.
+    """
+    if skipSSL:
+        skip = skipSSL
+
+    def test_missingBinding(self):
+        """
+        Raise L{NotImplementedError} if pyOpenSSL is not based on cryptography.
+        """
+        def raiser(self):
+            raise NotImplementedError
+        self.patch(sslverify._OpenSSLECCurve, "_getBinding", raiser)
+        self.assertRaises(
+            NotImplementedError,
+            sslverify._OpenSSLECCurve, sslverify._defaultCurveName,
+        )
+
+
+    def test_nonECbinding(self):
+        """
+        Raise L{NotImplementedError} if pyOpenSSL is based on cryptography but
+        cryptography lacks required EC methods.
+        """
+        def raiser(self):
+            raise AttributeError
+        lib = FakeLib()
+        lib.OBJ_sn2nid = raiser
+        self.patch(sslverify._OpenSSLECCurve,
+                   "_getBinding",
+                   lambda self: FakeBinding(lib=lib))
+        self.assertRaises(
+            NotImplementedError,
+            sslverify._OpenSSLECCurve, sslverify._defaultCurveName,
+        )
+
+
+    def test_wrongName(self):
+        """
+        Raise L{ValueError} on unknown sn names.
+        """
+        lib = FakeLib()
+        lib.OBJ_sn2nid = lambda self: FakeLib.NID_undef
+        self.patch(sslverify._OpenSSLECCurve,
+                   "_getBinding",
+                   lambda self: FakeBinding(lib=lib))
+        self.assertRaises(
+            ValueError,
+            sslverify._OpenSSLECCurve, u"doesNotExist",
+        )
+
+
+    def test_keyFails(self):
+        """
+        Raise L{EnvironmentError} if key creation fails.
+        """
+        lib = FakeLib()
+        lib.EC_KEY_new_by_curve_name = lambda *a, **kw: FakeFFI.NULL
+        self.patch(sslverify._OpenSSLECCurve,
+                   "_getBinding",
+                   lambda self: FakeBinding(lib=lib))
+        curve = sslverify._OpenSSLECCurve(sslverify._defaultCurveName)
+        self.assertRaises(
+            EnvironmentError,
+            curve.addECKeyToContext, object()
+        )
+
+
+    def test_keyGetsFreed(self):
+        """
+        Don't leak a key when adding it to a context.
+        """
+        lib = FakeLib()
+        self.patch(sslverify._OpenSSLECCurve,
+                   "_getBinding",
+                   lambda self: FakeBinding(lib=lib))
+        curve = sslverify._OpenSSLECCurve(sslverify._defaultCurveName)
+        ctx = FakeContext(None)
+        ctx._context = None
+        curve.addECKeyToContext(ctx)
+        self.assertEqual(set(), lib._createdKeys)
+
+
+
+class KeyPair(unittest.TestCase):
+    """
+    Tests for L{sslverify.KeyPair}.
+    """
+    if skipSSL:
+        skip = skipSSL
+
+    def setUp(self):
+        """
+        Create test certificate.
+        """
+        self.sKey = makeCertificate(
+            O=b"Server Test Certificate",
+            CN=b"server")[0]
+
+
+    def test_getstateDeprecation(self):
+        """
+        L{sslverify.KeyPair.__getstate__} is deprecated.
+        """
+        self.callDeprecated(
+            (Version("Twisted", 14, 1, 0), "a real persistence system"),
+            sslverify.KeyPair(self.sKey).__getstate__)
+
+
+    def test_setstateDeprecation(self):
+        """
+        {sslverify.KeyPair.__setstate__} is deprecated.
+        """
+        state = sslverify.KeyPair(self.sKey).dump()
+        self.callDeprecated(
+            (Version("Twisted", 14, 1, 0), "a real persistence system"),
+            sslverify.KeyPair(self.sKey).__setstate__, state)

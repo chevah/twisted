@@ -19,12 +19,15 @@ from twisted.cred.portal import IRealm, Portal
 from twisted.conch.error import ConchError, ValidPublicKey
 from twisted.internet import defer, task
 from twisted.protocols import loopback
+from twisted.python.reflect import requireModule
 from twisted.trial import unittest
 
-try:
-    import Crypto.Cipher.DES3
-    import pyasn1
-except ImportError:
+if requireModule('Crypto.Cipher.DES3') and requireModule('pyasn1'):
+    from twisted.conch.ssh.common import NS
+    from twisted.conch.checkers import SSHProtocolChecker
+    from twisted.conch.ssh import keys, userauth, transport
+    from twisted.conch.test import keydata
+else:
     keys = None
 
 
@@ -39,11 +42,6 @@ except ImportError:
             """
             A stub class so that later class definitions won't die.
             """
-else:
-    from twisted.conch.ssh.common import NS
-    from twisted.conch.checkers import SSHProtocolChecker
-    from twisted.conch.ssh import keys, userauth, transport
-    from twisted.conch.test import keydata
 
 
 
@@ -809,47 +807,6 @@ class SSHUserAuthClientTestCase(unittest.TestCase):
         self.assertEqual(authClient.transport.packets, [
                 (userauth.MSG_USERAUTH_REQUEST, NS('foo') + NS('nancy') +
                  NS('none'))])
-
-
-    def test_old_publickey_getPublicKey(self):
-        """
-        Old SSHUserAuthClients returned strings of public key blobs from
-        getPublicKey().  Test that a Deprecation warning is raised but the key is
-        verified correctly.
-        """
-        oldAuth = OldClientAuth('foo', FakeTransport.Service())
-        oldAuth.transport = FakeTransport(None)
-        oldAuth.transport.sessionID = 'test'
-        oldAuth.serviceStarted()
-        oldAuth.transport.packets = []
-        self.assertWarns(DeprecationWarning, "Returning a string from "
-                         "SSHUserAuthClient.getPublicKey() is deprecated since "
-                         "Twisted 9.0.  Return a keys.Key() instead.",
-                         userauth.__file__, oldAuth.tryAuth, 'publickey')
-        self.assertEqual(oldAuth.transport.packets, [
-                (userauth.MSG_USERAUTH_REQUEST, NS('foo') + NS('nancy') +
-                 NS('publickey') + '\x00' + NS('ssh-rsa') +
-                 NS(keys.Key.fromString(keydata.publicRSA_openssh).blob()))])
-
-
-    def test_old_publickey_getPrivateKey(self):
-        """
-        Old SSHUserAuthClients returned a PyCrypto key object from
-        getPrivateKey().  Test that _cbSignData signs the data warns the
-        user about the deprecation, but signs the data correctly.
-        """
-        oldAuth = OldClientAuth('foo', FakeTransport.Service())
-        d = self.assertWarns(DeprecationWarning, "Returning a PyCrypto key "
-                             "object from SSHUserAuthClient.getPrivateKey() is "
-                             "deprecated since Twisted 9.0.  "
-                             "Return a keys.Key() instead.", userauth.__file__,
-                             oldAuth.signData, None, 'data')
-        def _checkSignedData(sig):
-            self.assertEqual(sig,
-                keys.Key.fromString(keydata.privateRSA_openssh).sign(
-                    'data'))
-        d.addCallback(_checkSignedData)
-        return d
 
 
     def test_no_publickey(self):
