@@ -5,6 +5,7 @@ language: python
 
 # Supported Python versions.
 python:
+  - "2.6"
   - "2.7"
 
 # Run default tests on all supported Python versions..
@@ -19,36 +20,36 @@ matrix:
   include:
     # Python 3.3 tests are only executed once while Twisted is in migration
     # process.
-    # - python: "3.3"
-    #   env: TEST=py-3.3
-    # - python: "2.7"
-    #   env: TEST=py-without-modules
-    # - python: "2.7"
-    #   env: TEST=py-select
-    # - python: "2.7"
-    #   env: TEST=py-poll
-    # - python: "2.7"
-    #   env: TEST=py-epoll
-    # - python: "2.7"
-    #   env: TEST=py-glib2
-    # - python: "2.7"
-    #   env: TEST=py-gi
-    # - python: "2.7"
-    #   env: TEST=py-gtk2
-    # - python: "2.7"
-    #   env: TEST=py-gtk3
-    # - python: "2.7"
-    #   env: TEST=py-gi
-    # - python: "2.7"
-    #   env: TEST=py-gtk2
-    # - python: "2.7"
-    #   env: TEST=py-gtk3
+    - python: "3.3"
+      env: TEST=py-3.3
+    - python: "2.7"
+      env: TEST=py-without-modules
+    - python: "2.7"
+      env: TEST=py-select
+    - python: "2.7"
+      env: TEST=py-poll
+    - python: "2.7"
+      env: TEST=py-epoll
+    - python: "2.7"
+      env: TEST=py-glib2
+    - python: "2.7"
+      env: TEST=py-gi
+    - python: "2.7"
+      env: TEST=py-gtk2
+    - python: "2.7"
+      env: TEST=py-gtk3
+    - python: "2.7"
+      env: TEST=py-gi
+    - python: "2.7"
+      env: TEST=py-gtk2
+    - python: "2.7"
+      env: TEST=py-gtk3
     - python: "2.7"
       env: TEST=pyflakes
-    # - python: "2.7"
-    #   env: TEST=api-reference
-    # - python: "2.7"
-    #   env: TEST=documentation
+    - python: "2.7"
+      env: TEST=api-reference
+    - python: "2.7"
+      env: TEST=documentation
 
 # Each builder has its own install requirements in order
 # to avoid installing unused packages.

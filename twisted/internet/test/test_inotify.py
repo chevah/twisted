@@ -19,7 +19,7 @@ else:
 
 skipTravisCI = None
 if os.environ.get('TRAVIS') == 'true':
-    skipTravisCI = 'IN_DELETE_SELF not working on Travis workers.'
+    skipTravisCI = 'IN_DELETE_SELF is not working on Travis CI workers.'
 
 
 
@@ -28,9 +28,6 @@ class TestINotify(unittest.TestCase):
     Define all the tests for the basic functionality exposed by
     L{inotify.INotify}.
     """
-
-    timeout = 5
-
     if not runtime.platform.supportsINotify():
         skip = "This platform doesn't support INotify."
 
