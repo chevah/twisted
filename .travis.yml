@@ -6,6 +6,8 @@ language: python
 python:
   - "2.7"
 
+after_failure: "cat _trial_temp/test.log"
+
 # Tests on supported Python version are executed with various reactors.
 # env:
 #   - TEST=py-select
