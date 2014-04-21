@@ -363,7 +363,7 @@ class INotify(FileDescriptor, object):
             if wd:
                 return wd
 
-            mask = mask #| IN_DELETE_SELF # need this to remove the watch
+            mask = mask | IN_DELETE_SELF # need this to remove the watch
 
             return self._addWatch(path, mask, autoAdd, callbacks)
 

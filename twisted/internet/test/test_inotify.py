@@ -222,7 +222,7 @@ class TestINotify(unittest.TestCase):
 
         return self._notificationTest(
             inotify.IN_WATCH_MASK, operation, expectedPath=self.dirname)
-
+    test_deleteSelf.skip = None
 
     def test_moveSelf(self):
         """
