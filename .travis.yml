@@ -12,6 +12,11 @@ python:
 env:
     - TEST=py-default
 
+# Start X server for GTK reactor.
+before_install:
+  - "export DISPLAY=:99.0"
+  - "sh -e /etc/init.d/xvfb start"
+
 # Dump trial log on failure.
 after_failure: "cat _trial_temp/test.log"
 
