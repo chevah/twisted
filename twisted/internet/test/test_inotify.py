@@ -415,6 +415,23 @@ class TestINotify(unittest.TestCase):
 
         return notified
 
+    def test_deleteSelfSimple(self):
+        expectedPath = self.dirname.child("foo.bar2")
+        expectedPath.touch()
+
+        notified = defer.Deferred()
+        def cbNotified(ignored, filename, events):
+            self.assertEqual(filename, expectedPath)
+            self.assertTrue(events & inotify.IN_DELETE_SELF)
+
+
+        self.inotify.watch(expectedPath, callbacks=[cbNotified])
+        expectedPath.remove()
+
+        return notified
+
+
+
 
     def test_ignoreFilePath(self):
         """

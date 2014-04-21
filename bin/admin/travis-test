@@ -78,7 +78,7 @@ COMMANDS='
 
 case "$COMMAND" in
     "py-default")
-        run_venv_trial twisted.internet.test.test_inotify.TestINotify.test_deleteSelf
+        run_venv_trial twisted.internet.test.test_inotify.TestINotify.test_deleteSelfSimple
         ;;
 
     "py-without-modules")
