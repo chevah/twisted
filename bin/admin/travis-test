@@ -9,7 +9,7 @@
 COMMAND=$1
 
 # Run minimal report to reduce log size.
-TRIAL_COMMAND="./bin/trial --reporter=text --unclean-warnings"
+TRIAL_COMMAND="./bin/trial -x --reporter=text --unclean-warnings"
 # Allow Ctrl+C to stop the tests and exit on first error.
 # When Buffer stdout/stderr, test runner is crashing.
 PYTHON_3_TEST="./admin/run-python3-tests -c"
@@ -50,7 +50,7 @@ trial_log() {
 run_venv_trial() {
     pip_install
     python $TRIAL_COMMAND $@ twisted
-    exit_code=$1
+    exit_code=$?
     trial_log
     return $exit_code
 }
@@ -98,9 +98,9 @@ case "$COMMAND" in
         sudo apt-get update -qq
         echo "Installing dependencies..."
         sudo apt-get install -qq python-gobject
-        pip_install
         echo "Running tests..."
-        /usr/bin/python $TRIAL_COMMAND --reactor=glib2 twisted
+        #/usr/bin/python $TRIAL_COMMAND --reactor=glib2 twisted
+        run_venv_trial --reactor=glib2
         ;;
 
     "py-3.3")
