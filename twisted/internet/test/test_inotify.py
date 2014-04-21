@@ -295,7 +295,7 @@ class TestINotify(unittest.TestCase):
 
         checkMask = inotify.IN_ISDIR | inotify.IN_CREATE
         self.inotify.watch(
-            self.dirname, mask=checkMask, autoAdd=True,
+            self.dirname, mask=None, autoAdd=True,
             callbacks=[_callback])
         subdir = self.dirname.child('test')
         d = defer.Deferred()
@@ -414,25 +414,6 @@ class TestINotify(unittest.TestCase):
         expectedPath.remove()
 
         return notified
-
-    def test_deleteSelfSimple(self):
-        expectedPath = self.dirname.child("foo.bar2")
-        expectedPath.touch()
-
-        notified = defer.Deferred()
-        def cbNotified(ignored, filename, events):
-            self.assertEqual(filename, expectedPath)
-            notified.callback(None)
-            self.assertEqual(inotify.IN_ATTRIB, events)
-            self.assertFalse(self.inotify._isWatched(expectedPath.path))
-
-        self.inotify.watch(expectedPath, callbacks=[cbNotified])
-        expectedPath.remove()
-        self.assertFalse(expectedPath.exists())
-
-        return notified
-
-
 
 
     def test_ignoreFilePath(self):
