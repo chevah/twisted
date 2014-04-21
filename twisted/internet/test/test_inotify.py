@@ -217,6 +217,7 @@ class TestINotify(unittest.TestCase):
         def operation(path):
             path.remove()
 
+        print inotify.IN_DELETE_SELF
         return self._notificationTest(
             inotify.IN_DELETE_SELF, operation, expectedPath=self.dirname)
 

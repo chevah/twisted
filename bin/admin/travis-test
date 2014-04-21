@@ -86,8 +86,8 @@ case "$COMMAND" in
         echo "Installing dependencies..."
         sudo apt-get install -qq python-gobject
         echo "Running tests..."
-        #/usr/bin/python $TRIAL_COMMAND --reactor=glib2 twisted
-        run_venv_trial --reactor=glib2
+        /usr/bin/python $TRIAL_COMMAND --reactor=glib2 twisted
+        #run_venv_trial --reactor=glib2
         ;;
 
     "py-3.3")
