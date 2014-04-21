@@ -57,4 +57,4 @@ install:
 
 # Command used for executing the tests, where $TEST is extracted from `env`.
 script:
-  - ./bin/admin/run-test-suites $TEST
+  - ./bin/admin/run-test-suite $TEST
