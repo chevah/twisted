@@ -23,6 +23,9 @@ class TestINotify(unittest.TestCase):
     Define all the tests for the basic functionality exposed by
     L{inotify.INotify}.
     """
+
+    timeout = 5
+
     if not runtime.platform.supportsINotify():
         skip = "This platform doesn't support INotify."
 
@@ -215,9 +218,10 @@ class TestINotify(unittest.TestCase):
         C{inotify.IN_DELETE_SELF} event to the callback.
         """
         def operation(path):
+            print "actual: %s" % path.path
             path.remove()
 
-        print inotify.IN_DELETE_SELF
+        print "target: %s" % self.dirname
         return self._notificationTest(
             inotify.IN_DELETE_SELF, operation, expectedPath=self.dirname)
 

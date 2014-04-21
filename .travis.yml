@@ -27,6 +27,12 @@ matrix:
     - python: "2.7"
       env: TEST=py-glib2
     # - python: "2.7"
+    #   env: TEST=py-gi
+    # - python: "2.7"
+    #   env: TEST=py-gtk2
+    # - python: "2.7"
+    #   env: TEST=py-gtk3
+    # - python: "2.7"
     #   env: TEST=pyflakes
     # - python: "2.7"
     #   env: TEST=api-reference

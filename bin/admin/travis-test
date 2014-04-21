@@ -33,17 +33,36 @@ pip_install() {
 
 
 #
-# Run trial on twisted inside the virtual environment.
+# Run trial inside the virtual environment.
 #
 run_venv_trial() {
     pip_install
-    python $TRIAL_COMMAND $@ twisted
+    echo "Running tests $@..."
+    python $TRIAL_COMMAND $@
     exit_code=$?
+    return $exit_code
+}
+
+#
+# Run trial on using system Python.
+#
+run_system_trial() {
+    echo "Updating packages..."
+    sudo apt-get update -qq
+
+    echo "Installing dependencies..."
+    sudo apt-get install -qq python-gobject
+
+    echo "Running tests $@..."
+    /usr/bin/python $TRIAL_COMMAND $@
+    exit_code=$?
+
     return $exit_code
 }
 
 
 COMMANDS='
+    py-default
     py-without-modules
     py-select-gc
     py-select
@@ -58,36 +77,44 @@ COMMANDS='
 
 
 case "$COMMAND" in
+    "py-default")
+        run_venv_trial twisted
+        ;;
+
     "py-without-modules")
-        run_venv_trial --without-module OpenSSL --without-module Crypto
+        run_venv_trial --without-module OpenSSL --without-module Crypto twisted
         ;;
 
     "py-select-gc")
-        run_venv_trial --force-gc --reactor=select
+        run_venv_trial --force-gc --reactor=select twisted.internet
         ;;
 
     "py-select")
-        run_venv_trial --reactor=select
+        run_venv_trial --reactor=select twisted.internet
         ;;
 
     "py-poll")
-        run_venv_trial --reactor=poll
+        run_venv_trial --reactor=poll twisted.internet
         ;;
 
     "py-epoll")
-        run_venv_trial --reactor=epoll
+        run_venv_trial --reactor=epoll twisted.internet
         ;;
 
     "py-glib2")
-        # Install glib on the base system and run Python from the system as
-        # the Python package does not support virtual environments.
-        echo "Updating packages..."
-        sudo apt-get update -qq
-        echo "Installing dependencies..."
-        sudo apt-get install -qq python-gobject
-        echo "Running tests..."
-        /usr/bin/python $TRIAL_COMMAND --reactor=glib2 twisted
-        #run_venv_trial --reactor=glib2
+        run_system_trial --reactor=glib2 twisted.internet
+        ;;
+
+    "py-gi")
+        run_system_trial --reactor=gi twisted.internet
+        ;;
+
+    "py-gtk2")
+        run_system_trial --reactor=gtk2 twisted.internet
+        ;;
+
+    "py-gtk3")
+        run_system_trial --reactor=gtk3 twisted.internet
         ;;
 
     "py-3.3")
