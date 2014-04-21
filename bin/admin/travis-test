@@ -9,7 +9,7 @@
 COMMAND=$1
 
 # Run minimal report to reduce log size.
-TRIAL_COMMAND="./bin/trial --reporter=text --unclean-warnings"
+TRIAL_COMMAND="./bin/trial -x --reporter=text --unclean-warnings"
 # Allow Ctrl+C to stop the tests and exit on first error.
 # When Buffer stdout/stderr, test runner is crashing.
 PYTHON_3_TEST="./admin/run-python3-tests -c"
