@@ -277,6 +277,7 @@ class TestINotify(unittest.TestCase):
         def _callback(wp, filename, mask):
             # We are notified before we actually process new
             # directories, so we need to defer this check.
+            print mask
             def _():
                 try:
                     self.assertTrue(self.inotify._isWatched(subdir))
