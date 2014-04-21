@@ -422,8 +422,7 @@ class TestINotify(unittest.TestCase):
         notified = defer.Deferred()
         def cbNotified(ignored, filename, events):
             self.assertEqual(filename, expectedPath)
-            self.assertTrue(events & inotify.IN_DELETE_SELF)
-
+            self.assertEqual(0, inotify.IN_DELETE_SELF)
 
         self.inotify.watch(expectedPath, callbacks=[cbNotified])
         expectedPath.remove()
