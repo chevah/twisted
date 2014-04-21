@@ -301,7 +301,7 @@ class TestINotify(unittest.TestCase):
 
         checkMask = inotify.IN_ISDIR | inotify.IN_CREATE
         self.inotify.watch(
-            self.dirname, mask=IN_WATCH_MASK, autoAdd=True,
+            self.dirname, mask=inotify.IN_WATCH_MASK, autoAdd=True,
             callbacks=[_callback])
         subdir = self.dirname.child('test')
         d = defer.Deferred()
