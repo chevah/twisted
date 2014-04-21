@@ -1,9 +1,6 @@
 #!/bin/bash
 #
-# Helper to run tests on Travis CI service.
-#
-# Will exit after first error to reduce load on Travis servers.
-# On errors, developers should run full tests on their computers.
+# Helper to run predefined test suites.
 #
 
 COMMAND=$1
@@ -15,11 +12,11 @@ TRIAL_COMMAND="./bin/trial --reporter=text --unclean-warnings"
 PYTHON_3_TEST="./admin/run-python3-tests -c"
 
 REQUIREMENTS="\
-    pyOpenSSL==0.13.1\
-    service-identity==0.2\
-    pycrypto==2.6.1\
-    pyasn1==0.1.7\
-   "
+    pyOpenSSL==0.14 \
+    service-identity==0.2 \
+    pycrypto==2.6.1 \
+    pyasn1==0.1.7 \
+    "
 
 #
 # Install project and dependencies with pip.
@@ -43,6 +40,7 @@ run_venv_trial() {
     return $exit_code
 }
 
+
 #
 # Run trial on using system Python.
 #
@@ -51,7 +49,7 @@ run_system_trial() {
     sudo apt-get update -qq
 
     echo "Installing dependencies..."
-    sudo apt-get install -qq python-gobject
+    sudo apt-get install -qq python-gtk2 python-gobject
 
     echo "Running tests $@..."
     /usr/bin/python $TRIAL_COMMAND $@

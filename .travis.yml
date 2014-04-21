@@ -22,8 +22,11 @@ matrix:
     # process.
     - python: "3.3"
       env: TEST=py-3.3
+
     - python: "2.7"
       env: TEST=py-without-modules
+
+    # Run test with various reactors using a single Python version.
     - python: "2.7"
       env: TEST=py-select
     - python: "2.7"
@@ -38,14 +41,10 @@ matrix:
       env: TEST=py-gtk2
     - python: "2.7"
       env: TEST=py-gtk3
-    - python: "2.7"
-      env: TEST=py-gi
-    - python: "2.7"
-      env: TEST=py-gtk2
-    - python: "2.7"
-      env: TEST=py-gtk3
+
     - python: "2.7"
       env: TEST=pyflakes
+
     - python: "2.7"
       env: TEST=api-reference
     - python: "2.7"
@@ -58,4 +57,4 @@ install:
 
 # Command used for executing the tests, where $TEST is extracted from `env`.
 script:
-  - ./bin/admin/travis-test $TEST
+  - ./bin/admin/run-test-suites $TEST
