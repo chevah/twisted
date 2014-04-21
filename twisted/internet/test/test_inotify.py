@@ -424,9 +424,11 @@ class TestINotify(unittest.TestCase):
             self.assertEqual(filename, expectedPath)
             notified.callback(None)
             self.assertEqual(inotify.IN_ATTRIB, events)
+            self.assertFalse(self.inotify._isWatched(expectedPath.path))
 
         self.inotify.watch(expectedPath, callbacks=[cbNotified])
         expectedPath.remove()
+        self.assertFalse(expectedPath.exists())
 
         return notified
 
