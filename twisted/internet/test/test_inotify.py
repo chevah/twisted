@@ -221,7 +221,7 @@ class TestINotify(unittest.TestCase):
             path.remove()
 
         return self._notificationTest(
-            inotify.IN_DELETE_SELF, operation, expectedPath=self.dirname)
+            inotify.IN_WATCH_MASK, operation, expectedPath=self.dirname)
 
 
     def test_moveSelf(self):
