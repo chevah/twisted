@@ -277,7 +277,6 @@ class TestINotify(unittest.TestCase):
         def _callback(wp, filename, mask):
             # We are notified before we actually process new
             # directories, so we need to defer this check.
-            print mask
             def _():
                 try:
                     self.assertTrue(self.inotify._isWatched(subdir))
@@ -302,12 +301,14 @@ class TestINotify(unittest.TestCase):
 
         checkMask = inotify.IN_ISDIR | inotify.IN_CREATE
         self.inotify.watch(
-            self.dirname, mask=inotify.IN_WATCH_MASK, autoAdd=True,
+            self.dirname, mask=checkMask, autoAdd=True,
             callbacks=[_callback])
         subdir = self.dirname.child('test')
         d = defer.Deferred()
         subdir.createDirectory()
         return d
+    # autoAdd depends IN_DELETE_SELF which is not working on Travis.
+    test_simpleDeleteDirectory.skip = skipTravisCI
 
 
     def test_ignoreDirectory(self):
