@@ -218,8 +218,6 @@ class TestINotify(unittest.TestCase):
         C{inotify.IN_DELETE_SELF} event to the callback.
         """
         def operation(path):
-            import time
-            time.sleep(1)
             path.remove()
 
         return self._notificationTest(
