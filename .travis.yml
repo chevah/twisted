@@ -7,10 +7,8 @@ language: python
 #   - "2.7"
 
 # Tests on supported Python version are executed with various reactors.
-# env:
-#   - TEST=py-select
-#   - TEST=py-poll
-#   - TEST=py-epoll
+env:
+    - TEST=py-default
 
 after_failure: "cat _trial_temp/test.log"
 
@@ -24,8 +22,14 @@ matrix:
     #   env: TEST=py-3.3
     # - python: "2.7"
     #   env: TEST=py-without-modules
-    - python: "2.7"
-      env: TEST=py-glib2
+    # - python: "2.7"
+    #   env: TEST=py-select
+    # - python: "2.7"
+    #   env: TEST=py-poll
+    # - python: "2.7"
+    #   env: TEST=py-epoll
+    # - python: "2.7"
+    #   env: TEST=py-glib2
     # - python: "2.7"
     #   env: TEST=py-gi
     # - python: "2.7"
@@ -33,8 +37,14 @@ matrix:
     # - python: "2.7"
     #   env: TEST=py-gtk3
     # - python: "2.7"
-    #   env: TEST=pyflakes
+    #   env: TEST=py-gi
     # - python: "2.7"
+    #   env: TEST=py-gtk2
+    # - python: "2.7"
+    #   env: TEST=py-gtk3
+    # - python: "2.7"
+      env: TEST=pyflakes
+    - python: "2.7"
     #   env: TEST=api-reference
     # - python: "2.7"
     #   env: TEST=documentation
