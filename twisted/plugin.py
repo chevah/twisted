@@ -13,6 +13,7 @@ Plugin system for Twisted.
 import os
 import sys
 
+from six import iteritems, itervalues
 from zope.interface import Interface, providedBy
 
 def _determinePickleModule():
@@ -102,7 +103,7 @@ class CachedDropin(object):
 def _generateCacheEntry(provider):
     dropin = CachedDropin(provider.__name__,
                           provider.__doc__)
-    for k, v in provider.__dict__.iteritems():
+    for k, v in iteritems(provider.__dict__):
         plugin = IPlugin(v, None)
         if plugin is not None:
             # Instantiated for its side-effects.
@@ -146,7 +147,7 @@ def getCache(module):
             buckets[fpp] = []
         bucket = buckets[fpp]
         bucket.append(plugmod)
-    for pseudoPackagePath, bucket in buckets.iteritems():
+    for pseudoPackagePath, bucket in iteritems(buckets):
         dropinPath = pseudoPackagePath.child('dropin.cache')
         try:
             lastCached = dropinPath.getModificationTime()
@@ -207,7 +208,7 @@ def getPlugins(interface, package=None):
     if package is None:
         import twisted.plugins as package
     allDropins = getCache(package)
-    for dropin in allDropins.itervalues():
+    for dropin in itervalues(allDropins):
         for plugin in dropin.plugins:
             try:
                 adapted = interface(plugin, None)

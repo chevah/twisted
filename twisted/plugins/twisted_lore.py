@@ -1,38 +1,44 @@
 
-from zope.interface import implements
+from zope.interface import implementer
 
-from twisted.lore.scripts.lore import IProcessor
+from twisted.python.compat import _PY3
 from twisted.plugin import IPlugin
 
-class _LorePlugin(object):
-    implements(IPlugin, IProcessor)
+if _PY3:
+    # Lore is deprecated and will not be ported to Python 3.
+    pass
+else:
+    from twisted.lore.scripts.lore import IProcessor
 
-    def __init__(self, name, moduleName, description):
-        self.name = name
-        self.moduleName = moduleName
-        self.description = description
+    @implementer(IPlugin, IProcessor)
+    class _LorePlugin(object):
 
-DefaultProcessor = _LorePlugin(
-    "lore",
-    "twisted.lore.default",
-    "Lore format")
+        def __init__(self, name, moduleName, description):
+            self.name = name
+            self.moduleName = moduleName
+            self.description = description
 
-MathProcessor = _LorePlugin(
-    "mlore",
-    "twisted.lore.lmath",
-    "Lore format with LaTeX formula")
+    DefaultProcessor = _LorePlugin(
+        "lore",
+        "twisted.lore.default",
+        "Lore format")
 
-SlideProcessor = _LorePlugin(
-    "lore-slides",
-    "twisted.lore.slides",
-    "Lore for slides")
+    MathProcessor = _LorePlugin(
+        "mlore",
+        "twisted.lore.lmath",
+        "Lore format with LaTeX formula")
 
-ManProcessor = _LorePlugin(
-    "man",
-    "twisted.lore.man2lore",
-    "UNIX Man pages")
+    SlideProcessor = _LorePlugin(
+        "lore-slides",
+        "twisted.lore.slides",
+        "Lore for slides")
 
-NevowProcessor = _LorePlugin(
-    "nevow",
-    "twisted.lore.nevowlore",
-    "Nevow for Lore")
+    ManProcessor = _LorePlugin(
+        "man",
+        "twisted.lore.man2lore",
+        "UNIX Man pages")
+
+    NevowProcessor = _LorePlugin(
+        "nevow",
+        "twisted.lore.nevowlore",
+        "Nevow for Lore")

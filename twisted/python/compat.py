@@ -21,7 +21,7 @@ the latest version of Python directly from your code, if possible.
 from __future__ import division
 
 import sys, string, socket, struct
-
+from six import next
 
 if sys.version_info < (3, 0):
     _PY3 = False
@@ -434,6 +434,7 @@ __all__ = [
     "set",
     "cmp",
     "comparable",
+    "next",
     "nativeString",
     "NativeStringIO",
     "networkString",

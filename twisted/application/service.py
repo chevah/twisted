@@ -18,7 +18,6 @@ from zope.interface import implementer, Interface, Attribute
 from twisted.python.reflect import namedAny
 from twisted.python import components
 from twisted.internet import defer
-from twisted.persisted import sob
 from twisted.plugin import IPlugin
 
 
@@ -379,7 +378,7 @@ def Application(name, uid=None, gid=None):
     one of the interfaces.
     """
     ret = components.Componentized()
-    for comp in (MultiService(), sob.Persistent(ret, name), Process(uid, gid)):
+    for comp in (MultiService(), Process(uid, gid)):
         ret.addComponent(comp, ignoreClass=1)
     IService(ret).setName(name)
     return ret
@@ -399,6 +398,7 @@ def loadApplication(filename, kind, passphrase=None):
     @type kind: C{str}
     @type passphrase: C{str}
     """
+    from twisted.persisted import sob
     if kind == 'python':
         application = sob.loadValueFromFile(filename, 'application', passphrase)
     else:

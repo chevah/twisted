@@ -7,7 +7,7 @@
 Cred plugin for anonymous logins.
 """
 
-from zope.interface import implements
+from zope.interface import implementer
 
 from twisted import plugin
 from twisted.cred.checkers import AllowAnonymousAccess
@@ -19,12 +19,11 @@ anonymousCheckerFactoryHelp = """
 This allows anonymous authentication for servers that support it.
 """
 
-
+@implementer(ICheckerFactory, plugin.IPlugin)
 class AnonymousCheckerFactory(object):
     """
     Generates checkers that will authenticate an anonymous request.
     """
-    implements(ICheckerFactory, plugin.IPlugin)
     authType = 'anonymous'
     authHelp = anonymousCheckerFactoryHelp
     argStringFormat = 'No argstring required.'

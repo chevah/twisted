@@ -131,7 +131,7 @@ class _ModuleIteratorHelper:
             except UnlistableError:
                 continue
 
-            children.sort()
+            children = sorted(children)
             for potentialTopLevel in children:
                 ext = potentialTopLevel.splitext()[1]
                 potentialBasename = potentialTopLevel.basename()[:-len(ext)]

@@ -39,7 +39,10 @@ def main(args):
 
     if 'setuptools' in sys.modules:
         from pkg_resources import parse_requirements
-        requirements = ["zope.interface >= 3.6.0"]
+        requirements = [
+            'six >= 1.9.0',
+            'zope.interface >= 3.6.0',
+            ]
         try:
             list(parse_requirements(requirements))
         except:
