@@ -40,7 +40,7 @@ from twisted.python.compat import execfile
 
 STATIC_PACKAGE_METADATA = dict(
     name="Twisted",
-    version=copyright.version,
+    version=copyright.version + '.c1',
     description="An asynchronous networking framework written in Python",
     author="Twisted Matrix Laboratories",
     author_email="twisted-python@twistedmatrix.com",

@@ -60,7 +60,7 @@ dependency resolution is disabled.
 
     setup_args.update(dict(
         packages=getPackages('twisted'),
-        conditionalExtensions=getExtensions(),
+        #conditionalExtensions=getExtensions(),
         scripts=scripts,
         extras_require=_EXTRAS_REQUIRE,
         data_files=getDataFiles('twisted'),
