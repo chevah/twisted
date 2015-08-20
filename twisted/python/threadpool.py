@@ -13,6 +13,7 @@ import Queue
 import threading
 import copy
 
+from twisted.internet import defer, threads
 from twisted.python import log, context, failure
 
 
@@ -207,6 +208,23 @@ class ThreadPool:
         # FIXME: threads that have died before calling stop() are not joined.
         for thread in threads:
             thread.join()
+
+
+    @defer.inlineCallbacks
+    def stopAndWait(self):
+        """
+        Post stop request to all working threads and wait for them to finish.
+
+        Returns a deferred which fires when all workers are terminated.
+        """
+        self.joined = True
+
+        while self.workers:
+            self.q.put(WorkerStop)
+            self.workers -= 1
+
+        for thread in copy.copy(self.threads):
+            yield threads.deferToThread(thread.join)
 
 
     def adjustPoolsize(self, minthreads=None, maxthreads=None):

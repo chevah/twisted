@@ -10,8 +10,6 @@ import sys
 
 from twisted.internet import threads
 from twisted.python import reflect, log
-from twisted.python.deprecate import deprecated
-from twisted.python.versions import Version
 
 
 
@@ -374,6 +372,8 @@ class ConnectionPool:
     def close(self):
         """
         Close all pool connections and shutdown the pool.
+
+        Returns a deferred which fires when pool is closed.
         """
         if self.shutdownID:
             self._reactor.removeSystemEventTrigger(self.shutdownID)
@@ -381,17 +381,18 @@ class ConnectionPool:
         if self.startID:
             self._reactor.removeSystemEventTrigger(self.startID)
             self.startID = None
-        self.finalClose()
+        return self.finalClose()
 
     def finalClose(self):
         """This should only be called by the shutdown trigger."""
 
         self.shutdownID = None
-        self.threadpool.stop()
+        deferred = self.threadpool.stopAndWait()
         self.running = False
         for conn in self.connections.values():
             self._close(conn)
         self.connections.clear()
+        return deferred
 
     def connect(self):
         """Return a database connection when one becomes available.
