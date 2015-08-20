@@ -209,6 +209,19 @@ class ThreadPool:
             thread.join()
 
 
+    def stopWithoutWait(self):
+        """
+        Post stop request to all working threads and return immediately.
+
+        To wait for workers to terminate before returning call `stop`.
+        """
+        self.joined = True
+
+        while self.workers:
+            self.q.put(WorkerStop)
+            self.workers -= 1
+
+
     def adjustPoolsize(self, minthreads=None, maxthreads=None):
         if minthreads is None:
             minthreads = self.min

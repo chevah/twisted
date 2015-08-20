@@ -10,8 +10,6 @@ import sys
 
 from twisted.internet import threads
 from twisted.python import reflect, log
-from twisted.python.deprecate import deprecated
-from twisted.python.versions import Version
 
 
 
@@ -387,7 +385,7 @@ class ConnectionPool:
         """This should only be called by the shutdown trigger."""
 
         self.shutdownID = None
-        self.threadpool.stop()
+        self.threadpool.stopWithoutWait()
         self.running = False
         for conn in self.connections.values():
             self._close(conn)
