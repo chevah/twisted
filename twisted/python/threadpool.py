@@ -13,6 +13,7 @@ import Queue
 import threading
 import copy
 
+from twisted.internet import defer, threads
 from twisted.python import log, context, failure
 
 
@@ -209,17 +210,23 @@ class ThreadPool:
             thread.join()
 
 
-    def stopWithoutWait(self):
+    @defer.inlineCallbacks
+    def stopAndWait(self):
         """
-        Post stop request to all working threads and return immediately.
+        Post stop request to all working threads and wait for them to finish.
 
-        To wait for workers to terminate before returning call `stop`.
+        Returns a deferred which fires when all workers are terminated.
         """
         self.joined = True
 
         while self.workers:
             self.q.put(WorkerStop)
             self.workers -= 1
+
+        for thread in copy.copy(self.threads):
+            yield threads.deferToThread(thread.join)
+
+        defer.returnValue(None)
 
 
     def adjustPoolsize(self, minthreads=None, maxthreads=None):
