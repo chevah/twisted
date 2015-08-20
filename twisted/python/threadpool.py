@@ -226,8 +226,6 @@ class ThreadPool:
         for thread in copy.copy(self.threads):
             yield threads.deferToThread(thread.join)
 
-        defer.returnValue(None)
-
 
     def adjustPoolsize(self, minthreads=None, maxthreads=None):
         if minthreads is None:
