@@ -210,7 +210,6 @@ class ThreadPool:
             thread.join()
 
 
-    @defer.inlineCallbacks
     def stopAndWait(self):
         """
         Post stop request to all working threads and wait for them to finish.
@@ -223,8 +222,13 @@ class ThreadPool:
             self.q.put(WorkerStop)
             self.workers -= 1
 
+        deferreds = []
         for thread in copy.copy(self.threads):
-            yield threads.deferToThread(thread.join)
+            deferreds.append(threads.deferToThread(thread.join))
+
+        deferred = defer.DeferredList(deferreds)
+        deferred.addCallback(lambda _: None)
+        return deferred
 
 
     def adjustPoolsize(self, minthreads=None, maxthreads=None):
