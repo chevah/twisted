@@ -11,9 +11,11 @@ instead of creating a thread pool directly.
 
 from __future__ import division, absolute_import
 
+import copy
 import threading
 
 from twisted._threads import pool as _pool
+from twisted.internet import defer, threads
 from twisted.python import log, context
 from twisted.python.failure import Failure
 
@@ -274,6 +276,25 @@ class ThreadPool:
         self._team.quit()
         for thread in self.threads:
             thread.join()
+
+
+    def stopAndWait(self):
+        """
+        Post stop request to all working threads and wait for them to finish.
+
+        Returns a deferred which fires when all workers are terminated.
+        """
+        self.joined = True
+        self.started = False
+        self._team.quit()
+
+        deferreds = []
+        for thread in copy.copy(self.threads):
+            deferreds.append(threads.deferToThread(thread.join))
+
+        deferred = defer.DeferredList(deferreds)
+        deferred.addCallback(lambda _: None)
+        return deferred
 
 
     def adjustPoolsize(self, minthreads=None, maxthreads=None):
