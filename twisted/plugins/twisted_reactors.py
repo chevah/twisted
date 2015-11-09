@@ -37,6 +37,3 @@ cf = Reactor(
     'CoreFoundation integration reactor.')
 kqueue = Reactor(
     'kqueue', 'twisted.internet.kqreactor', 'kqueue(2)-based reactor.')
-iocp = Reactor(
-    'iocp', 'twisted.internet.iocpreactor',
-    'Win32 IO Completion Ports-based reactor.')
