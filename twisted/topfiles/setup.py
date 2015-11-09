@@ -31,12 +31,6 @@ extensions = [
               condition=lambda builder: (_isCPython and _hasEpoll(builder) and
                                          sys.version_info[:2] < (2, 6))),
 
-    Extension("twisted.internet.iocpreactor.iocpsupport",
-              ["twisted/internet/iocpreactor/iocpsupport/iocpsupport.c",
-               "twisted/internet/iocpreactor/iocpsupport/winsock_pointers.c"],
-              libraries=["ws2_32"],
-              condition=lambda _: _isCPython and sys.platform == "win32"),
-
     Extension("twisted.python._initgroups",
               ["twisted/python/_initgroups.c"]),
     Extension("twisted.python.sendmsg",
