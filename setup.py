@@ -48,13 +48,16 @@ def main(args):
 
     scripts = getScripts()
 
+    PATCHED_STATIC_PACKAGE_METADATA = STATIC_PACKAGE_METADATA.copy()
+    PATCHED_STATIC_PACKAGE_METADATA['version'] += '.chevah1'
+
     setup_args.update(dict(
         packages=getPackages('twisted'),
-        conditionalExtensions=getExtensions(),
+        #conditionalExtensions=getExtensions(),
         scripts=scripts,
         extras_require=_EXTRAS_REQUIRE,
         data_files=getDataFiles('twisted'),
-        **STATIC_PACKAGE_METADATA))
+        **PATCHED_STATIC_PACKAGE_METADATA))
 
     setup(**setup_args)
 
