@@ -700,6 +700,11 @@ class _BaseTCPClient(object):
             err = error.ConnectBindError(se.args[0], se.args[1])
             whenDone = None
         if whenDone and bindAddress is not None:
+
+            if isinstance(bindAddress, address.ReusableIPv4Address):
+                bindAddress = (bindAddress.host, bindAddress.port)
+                skt.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
             try:
                 if abstract.isIPv6Address(bindAddress[0]):
                     bindinfo = _resolveIPv6(*bindAddress)

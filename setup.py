@@ -58,7 +58,7 @@ def main(args):
     setup_args = dict(
         # metadata
         name="Twisted",
-        version=copyright.version + ".chevah10",
+        version=copyright.version + ".chevah11",
         description="An asynchronous networking framework written in Python",
         author="Twisted Matrix Laboratories",
         author_email="twisted-python@twistedmatrix.com",

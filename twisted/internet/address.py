@@ -68,6 +68,13 @@ class IPv4Address(_IPAddress):
 
 
 
+class ReusableIPv4Address(IPv4Address):
+    """
+    An L{IPv4Address} that can be binded on an reusable port.
+    """
+
+
+
 class IPv6Address(_IPAddress):
     """
     An L{IPv6Address} represents the address of an IPv6 socket endpoint.
