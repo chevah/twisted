@@ -9,7 +9,7 @@ Currently implemented authentication types are public-key and password.
 Maintainer: Paul Swartz
 """
 
-import struct, warnings
+import struct
 from twisted.conch import error, interfaces
 from twisted.conch.ssh import keys, transport, service
 from twisted.conch.ssh.common import NS, getNS
@@ -74,22 +74,20 @@ class SSHUserAuthServer(service.SSHService):
     interfaceToMethod = {
         credentials.ISSHPrivateKey : 'publickey',
         credentials.IUsernamePassword : 'password',
-        credentials.IPluggableAuthenticationModules : 'keyboard-interactive',
     }
 
 
     def serviceStarted(self):
         """
         Called when the userauth service is started.  Set up instance
-        variables, check if we should allow password/keyboard-interactive
-        authentication (only allow if the outgoing connection is encrypted) and
-        set up a login timeout.
+        variables, check if we should allow password authentication (only
+        allow if the outgoing connection is encrypted) and set up a login
+        timeout.
         """
         self.authenticatedWith = []
         self.loginAttempts = 0
         self.user = None
         self.nextService = None
-        self._pamDeferred = None
         self.portal = self.transport.factory.portal
 
         self.supportedAuthentications = []
@@ -101,8 +99,6 @@ class SSHUserAuthServer(service.SSHService):
             # don't let us transport password in plaintext
             if 'password' in self.supportedAuthentications:
                 self.supportedAuthentications.remove('password')
-            if 'keyboard-interactive' in self.supportedAuthentications:
-                self.supportedAuthentications.remove('keyboard-interactive')
         self._cancelLoginTimeout = self.clock.callLater(
             self.loginTimeout,
             self.timeoutAuthentication)
@@ -313,92 +309,18 @@ class SSHUserAuthServer(service.SSHService):
         return d
 
 
-    def auth_keyboard_interactive(self, packet):
-        """
-        Keyboard interactive authentication.  No payload.  We create a
-        PluggableAuthenticationModules credential and authenticate with our
-        portal.
-        """
-        if self._pamDeferred is not None:
-            self.transport.sendDisconnect(
-                    transport.DISCONNECT_PROTOCOL_ERROR,
-                    "only one keyboard interactive attempt at a time")
-            return defer.fail(error.IgnoreAuthentication())
-        c = credentials.PluggableAuthenticationModules(self.user,
-                self._pamConv)
-        return self.portal.login(c, None, interfaces.IConchUser)
-
-
-    def _pamConv(self, items):
-        """
-        Convert a list of PAM authentication questions into a
-        MSG_USERAUTH_INFO_REQUEST.  Returns a Deferred that will be called
-        back when the user has responses to the questions.
-
-        @param items: a list of 2-tuples (message, kind).  We only care about
-            kinds 1 (password) and 2 (text).
-        @type items: C{list}
-        @rtype: L{defer.Deferred}
-        """
-        resp = []
-        for message, kind in items:
-            if kind == 1: # password
-                resp.append((message, 0))
-            elif kind == 2: # text
-                resp.append((message, 1))
-            elif kind in (3, 4):
-                return defer.fail(error.ConchError(
-                    'cannot handle PAM 3 or 4 messages'))
-            else:
-                return defer.fail(error.ConchError(
-                    'bad PAM auth kind %i' % kind))
-        packet = NS('') + NS('') + NS('')
-        packet += struct.pack('>L', len(resp))
-        for prompt, echo in resp:
-            packet += NS(prompt)
-            packet += chr(echo)
-        self.transport.sendPacket(MSG_USERAUTH_INFO_REQUEST, packet)
-        self._pamDeferred = defer.Deferred()
-        return self._pamDeferred
-
-
-    def ssh_USERAUTH_INFO_RESPONSE(self, packet):
-        """
-        The user has responded with answers to PAMs authentication questions.
-        Parse the packet into a PAM response and callback self._pamDeferred.
-        Payload::
-            uint32 numer of responses
-            string response 1
-            ...
-            string response n
-        """
-        d, self._pamDeferred = self._pamDeferred, None
-
-        try:
-            resp = []
-            numResps = struct.unpack('>L', packet[:4])[0]
-            packet = packet[4:]
-            while len(resp) < numResps:
-                response, packet = getNS(packet)
-                resp.append((response, 0))
-            if packet:
-                raise error.ConchError("%i bytes of extra data" % len(packet))
-        except:
-            d.errback(failure.Failure())
-        else:
-            d.callback(resp)
-
-
 
 class SSHUserAuthClient(service.SSHService):
     """
     A service implementing the client side of 'ssh-userauth'.
 
+    This service will try all authentication methods provided by the server,
+    making callbacks for more information when necessary.
+
     @ivar name: the name of this service: 'ssh-userauth'
     @type name: C{str}
-    @ivar preferredOrder: a list of authentication methods we support, in
-        order of preference.  The client will try authentication methods in
-        this order, making callbacks for information when necessary.
+    @ivar preferredOrder: a list of authentication methods that should be used
+        first, in order of preference, if supported by the server
     @type preferredOrder: C{list}
     @ivar user: the name of the user to authenticate as
     @type user: C{str}
@@ -482,7 +404,7 @@ class SSHUserAuthClient(service.SSHService):
             byte partial success
 
         If partial success is C{True}, then the previous method succeeded but is
-        not sufficent for authentication. C{methods} is a comma-separated list
+        not sufficient for authentication. C{methods} is a comma-separated list
         of accepted authentication methods.
 
         We sort the list of methods by their position in C{self.preferredOrder},
@@ -674,12 +596,6 @@ class SSHUserAuthClient(service.SSHService):
 
 
     def _cbGetPublicKey(self, publicKey):
-        if isinstance(publicKey, str):
-            warnings.warn("Returning a string from "
-                          "SSHUserAuthClient.getPublicKey() is deprecated "
-                          "since Twisted 9.0.  Return a keys.Key() instead.",
-                          DeprecationWarning)
-            publicKey = keys.Key.fromString(publicKey)
         if not isinstance(publicKey, keys.Key): # failure or None
             publicKey = None
         if publicKey is not None:
@@ -768,12 +684,6 @@ class SSHUserAuthClient(service.SSHService):
         @return: the signature
         @rtype: C{str}
         """
-        if not isinstance(privateKey, keys.Key):
-            warnings.warn("Returning a PyCrypto key object from "
-                          "SSHUserAuthClient.getPrivateKey() is deprecated "
-                          "since Twisted 9.0.  Return a keys.Key() instead.",
-                          DeprecationWarning)
-            privateKey = keys.Key(privateKey)
         return privateKey.sign(signData)
 
 
@@ -830,17 +740,19 @@ MSG_USERAUTH_REQUEST          = 50
 MSG_USERAUTH_FAILURE          = 51
 MSG_USERAUTH_SUCCESS          = 52
 MSG_USERAUTH_BANNER           = 53
-MSG_USERAUTH_PASSWD_CHANGEREQ = 60
-MSG_USERAUTH_INFO_REQUEST     = 60
 MSG_USERAUTH_INFO_RESPONSE    = 61
 MSG_USERAUTH_PK_OK            = 60
 
 messages = {}
 for k, v in locals().items():
     if k[:4]=='MSG_':
-        messages[v] = k # doesn't handle doubles
+        messages[v] = k
 
 SSHUserAuthServer.protocolMessages = messages
 SSHUserAuthClient.protocolMessages = messages
 del messages
 del v
+
+# Doubles, not included in the protocols' mappings
+MSG_USERAUTH_PASSWD_CHANGEREQ = 60
+MSG_USERAUTH_INFO_REQUEST     = 60

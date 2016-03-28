@@ -14,21 +14,21 @@ Maintainer: Paul Swartz
 import struct
 import zlib
 import array
+from hashlib import md5, sha1, sha256, sha512
+import string
+import hmac
 
 # external library imports
 from Crypto import Util
-from Crypto.Cipher import XOR
 
 # twisted imports
 from twisted.internet import protocol, defer
 
-from twisted.conch import error
 from twisted.python import log, randbytes
-from twisted.python.hashlib import md5, sha1
 
 
 # sibling imports
-from twisted.conch.ssh import address, keys
+from twisted.conch.ssh import address, _kex, keys
 from twisted.conch.ssh.common import NS, getNS, MP, getMP, _MPpow, ffs
 
 
@@ -65,6 +65,27 @@ def _generateX(random, bits):
         x = _getRandomNumber(random, bits)
         if 2 <= x <= (2 ** bits) - 2:
             return x
+
+
+class _MACParams(tuple):
+    """
+    L{_MACParams} represents the parameters necessary to compute SSH MAC
+    (Message Authenticate Codes).
+
+    L{_MACParams} is a L{tuple} subclass to maintain compatibility with older
+    versions of the code.  The elements of a L{_MACParams} are::
+
+        0. The digest object used for the MAC
+        1. The inner pad ("ipad") string
+        2. The outer pad ("opad") string
+        3. The size of the digest produced by the digest object
+
+    L{_MACParams} is also an object lesson in why tuples are a bad type for
+    public APIs.
+
+    @ivar key: The HMAC key which will be used.
+    """
+
 
 class SSHTransportBase(protocol.Protocol):
     """
@@ -106,7 +127,7 @@ class SSHTransportBase(protocol.Protocol):
 
     @ivar isClient: A boolean indicating whether this is a client or server.
 
-    @ivar gotVersion: A boolean indicating whether we have receieved the
+    @ivar gotVersion: A boolean indicating whether we have received the
         version string from the other side.
 
     @ivar buf: Data we've received but hasn't been parsed into a packet.
@@ -187,16 +208,24 @@ class SSHTransportBase(protocol.Protocol):
     comment = ''
     ourVersionString = ('SSH-' + protocolVersion + '-' + version + ' '
             + comment).strip()
+
+    # C{none} is supported as cipher and hmac. For security they are disabled
+    # by default. To enable them, subclass this class and add it, or do:
+    # SSHTransportBase.supportedCiphers.append('none')
+    # List ordered by preference.
     supportedCiphers = ['aes256-ctr', 'aes256-cbc', 'aes192-ctr', 'aes192-cbc',
                         'aes128-ctr', 'aes128-cbc', 'cast128-ctr',
                         'cast128-cbc', 'blowfish-ctr', 'blowfish-cbc',
                         '3des-ctr', '3des-cbc'] # ,'none']
-    supportedMACs = ['hmac-sha1', 'hmac-md5'] # , 'none']
-    # both of the above support 'none', but for security are disabled by
-    # default.  to enable them, subclass this class and add it, or do:
-    #   SSHTransportBase.supportedCiphers.append('none')
-    supportedKeyExchanges = ['diffie-hellman-group-exchange-sha1',
-                             'diffie-hellman-group1-sha1']
+    supportedMACs = [
+        'hmac-sha2-512',
+        'hmac-sha2-256',
+        'hmac-sha1',
+        'hmac-md5',
+        # `none`,
+        ]
+
+    supportedKeyExchanges = _kex.getSupportedKeyExchanges()
     supportedPublicKeys = ['ssh-rsa', 'ssh-dss']
     supportedCompressions = ['none', 'zlib']
     supportedLanguages = ()
@@ -486,6 +515,26 @@ class SSHTransportBase(protocol.Protocol):
         return address.SSHTransportAddress(self.transport.getHost())
 
 
+    @property
+    def kexAlg(self):
+        """
+        The key exchange algorithm name agreed between client and server.
+        """
+        return self._kexAlg
+
+
+    @kexAlg.setter
+    def kexAlg(self, value):
+        """
+        Set the key exchange algorithm name.
+
+        @raises ConchError: if the key exchange algorithm is not found.
+        """
+        # Check for supportedness.
+        _kex.getKex(value)
+        self._kexAlg = value
+
+
     # Client-initiated rekeying looks like this:
     #
     #  C> MSG_KEXINIT
@@ -591,14 +640,14 @@ class SSHTransportBase(protocol.Protocol):
 
     def ssh_IGNORE(self, packet):
         """
-        Called when we receieve a MSG_IGNORE message.  No payload.
+        Called when we receive a MSG_IGNORE message.  No payload.
         This means nothing; we simply return.
         """
 
 
     def ssh_UNIMPLEMENTED(self, packet):
         """
-        Called when we receieve a MSG_UNIMPLEMENTED message.  Payload::
+        Called when we receive a MSG_UNIMPLEMENTED message.  Payload::
             long packet
 
         This means that the other side did not implement one of our packets.
@@ -609,7 +658,7 @@ class SSHTransportBase(protocol.Protocol):
 
     def ssh_DEBUG(self, packet):
         """
-        Called when we receieve a MSG_DEBUG message.  Payload::
+        Called when we receive a MSG_DEBUG message.  Payload::
             bool alwaysDisplay
             string message
             string language
@@ -698,9 +747,10 @@ class SSHTransportBase(protocol.Protocol):
         @type sharedSecret: C{str}
         @type exchangeHash: C{str}
         """
-        k1 = sha1(sharedSecret + exchangeHash + c + self.sessionID)
+        hashProcessor = _kex.getHashProcessor(self.kexAlg)
+        k1 = hashProcessor(sharedSecret + exchangeHash + c + self.sessionID)
         k1 = k1.digest()
-        k2 = sha1(sharedSecret + exchangeHash + k1).digest()
+        k2 = hashProcessor(sharedSecret + exchangeHash + k1).digest()
         return k1 + k2
 
 
@@ -881,24 +931,24 @@ class SSHServerTransport(SSHTransportBase):
 
     def _ssh_KEXDH_INIT(self, packet):
         """
-        Called to handle the beginning of a diffie-hellman-group1-sha1 key
-        exchange.
+        Called to handle the beginning of a non-group key exchange.
 
         Unlike other message types, this is not dispatched automatically.  It
         is called from C{ssh_KEX_DH_GEX_REQUEST_OLD} because an extra check is
         required to determine if this is really a KEXDH_INIT message or if it
         is a KEX_DH_GEX_REQUEST_OLD message.
 
-        The KEXDH_INIT (for diffie-hellman-group1-sha1 exchanges) payload::
+        The KEXDH_INIT payload::
 
                 integer e (the client's Diffie-Hellman public key)
 
-            We send the KEXDH_REPLY with our host key and signature.
+        We send the KEXDH_REPLY with our host key and signature.
         """
         clientDHpublicKey, foo = getMP(packet)
         y = _getRandomNumber(randbytes.secureRandom, 512)
-        serverDHpublicKey = _MPpow(DH_GENERATOR, y, DH_PRIME)
-        sharedSecret = _MPpow(clientDHpublicKey, y, DH_PRIME)
+        self.g, self.p = _kex.getDHGeneratorAndPrime(self.kexAlg)
+        serverDHpublicKey = _MPpow(self.g, y, self.p)
+        sharedSecret = _MPpow(clientDHpublicKey, y, self.p)
         h = sha1()
         h.update(NS(self.otherVersionString))
         h.update(NS(self.ourVersionString))
@@ -919,11 +969,10 @@ class SSHServerTransport(SSHTransportBase):
 
     def ssh_KEX_DH_GEX_REQUEST_OLD(self, packet):
         """
-        This represents two different key exchange methods that share the same
+        This represents different key exchange methods that share the same
         integer value.  If the message is determined to be a KEXDH_INIT,
         C{_ssh_KEXDH_INIT} is called to handle it.  Otherwise, for
-        KEX_DH_GEX_REQUEST_OLD (for diffie-hellman-group-exchange-sha1)
-        payload::
+        KEX_DH_GEX_REQUEST_OLD payload::
 
                 integer ideal (ideal size for the Diffie-Hellman prime)
 
@@ -939,15 +988,13 @@ class SSHServerTransport(SSHTransportBase):
 
         # KEXDH_INIT and KEX_DH_GEX_REQUEST_OLD have the same value, so use
         # another cue to decide what kind of message the peer sent us.
-        if self.kexAlg == 'diffie-hellman-group1-sha1':
+        if _kex.isFixedGroup(self.kexAlg):
             return self._ssh_KEXDH_INIT(packet)
-        elif self.kexAlg == 'diffie-hellman-group-exchange-sha1':
+        else:
             self.dhGexRequest = packet
             ideal = struct.unpack('>L', packet)[0]
             self.g, self.p = self.factory.getDHPrime(ideal)
             self.sendPacket(MSG_KEX_DH_GEX_GROUP, MP(self.p) + MP(self.g))
-        else:
-            raise error.ConchError('bad kexalg: %s' % self.kexAlg)
 
 
     def ssh_KEX_DH_GEX_REQUEST(self, packet):
@@ -994,7 +1041,7 @@ class SSHServerTransport(SSHTransportBase):
 
         serverDHpublicKey = _MPpow(self.g, y, self.p)
         sharedSecret = _MPpow(clientDHpublicKey, y, self.p)
-        h = sha1()
+        h = _kex.getHashProcessor(self.kexAlg)()
         h.update(NS(self.otherVersionString))
         h.update(NS(self.ourVersionString))
         h.update(NS(self.otherKexInitPayload))
@@ -1068,8 +1115,28 @@ class SSHClientTransport(SSHTransportBase):
     @ivar p: the Diffie-Hellman group prime
 
     @ivar instance: the SSHService object we are requesting.
+
+    @ivar _dhMinimalGroupSize: Minimal acceptable group size advertised by the
+        client in MSG_KEX_DH_GEX_REQUEST.
+    @type _dhMinimalGroupSize: int
+
+    @ivar _dhMaximalGroupSize: Maximal acceptable group size advertised by the
+        client in MSG_KEX_DH_GEX_REQUEST.
+    @type _dhMaximalGroupSize: int
+
+    @ivar _dhPreferredGroupSize: Preferred group size advertised by the client
+        in MSG_KEX_DH_GEX_REQUEST.
+    @type _dhPreferredGroupSize: int
     """
     isClient = True
+
+    # Recommended minimal and maximal values from RFC 4419, 3.
+    _dhMinimalGroupSize = 1024
+    _dhMaximalGroupSize = 8192
+    # FIXME: https://twistedmatrix.com/trac/ticket/8103
+    # This may need to be more dynamic; compare kexgex_client in
+    # OpenSSH.
+    _dhPreferredGroupSize = 2048
 
     def connectionMade(self):
         """
@@ -1085,33 +1152,43 @@ class SSHClientTransport(SSHTransportBase):
         Called when we receive a MSG_KEXINIT message.  For a description
         of the packet, see SSHTransportBase.ssh_KEXINIT().  Additionally,
         this method sends the first key exchange packet.  If the agreed-upon
-        exchange is diffie-hellman-group1-sha1, generate a public key
-        and send it in a MSG_KEXDH_INIT message.  If the exchange is
-        diffie-hellman-group-exchange-sha1, ask for a 2048 bit group with a
-        MSG_KEX_DH_GEX_REQUEST_OLD message.
+        exchange has a fixed prime/generator group, generate a public key
+        and send it in a MSG_KEXDH_INIT message. Otherwise, ask for a 2048
+        bit group with a MSG_KEX_DH_GEX_REQUEST message.
         """
         if SSHTransportBase.ssh_KEXINIT(self, packet) is None:
-            return # we disconnected
-        if self.kexAlg == 'diffie-hellman-group1-sha1':
+            # Connection was disconnected while doing base processing.
+            # Maybe no common protocols were agreed.
+            return
+
+        if _kex.isFixedGroup(self.kexAlg):
+            # We agreed on a fixed group key exchange algorithm.
             self.x = _generateX(randbytes.secureRandom, 512)
-            self.e = _MPpow(DH_GENERATOR, self.x, DH_PRIME)
+            self.g, self.p = _kex.getDHGeneratorAndPrime(self.kexAlg)
+            self.e = _MPpow(self.g, self.x, self.p)
             self.sendPacket(MSG_KEXDH_INIT, self.e)
-        elif self.kexAlg == 'diffie-hellman-group-exchange-sha1':
-            self.sendPacket(MSG_KEX_DH_GEX_REQUEST_OLD, '\x00\x00\x08\x00')
         else:
-            raise error.ConchError("somehow, the kexAlg has been set "
-                                   "to something we don't support")
+            # We agreed on a dynamic group. Tell the server what range of
+            # group sizes we accept, and what size we prefer; the server
+            # will then select a group.
+            self.sendPacket(
+                MSG_KEX_DH_GEX_REQUEST,
+                struct.pack(
+                    '!LLL',
+                    self._dhMinimalGroupSize,
+                    self._dhPreferredGroupSize,
+                    self._dhMaximalGroupSize,
+                    ))
 
 
     def _ssh_KEXDH_REPLY(self, packet):
         """
-        Called to handle a reply to a diffie-hellman-group1-sha1 key exchange
-        message (KEXDH_INIT).
-        
+        Called to handle a reply to a non-group key exchange message
+        (KEXDH_INIT).
+
         Like the handler for I{KEXDH_INIT}, this message type has an
         overlapping value.  This method is called from C{ssh_KEX_DH_GEX_GROUP}
-        if that method detects a diffie-hellman-group1-sha1 key exchange is in
-        progress.
+        if that method detects a non-group key exchange is in progress.
 
         Payload::
 
@@ -1137,17 +1214,17 @@ class SSHClientTransport(SSHTransportBase):
 
     def ssh_KEX_DH_GEX_GROUP(self, packet):
         """
-        This handles two different message which share an integer value.
+        This handles different messages which share an integer value.
 
-        If the key exchange is diffie-hellman-group-exchange-sha1, this is
-        MSG_KEX_DH_GEX_GROUP.  Payload::
+        If the key exchange does not have a fixed prime/generator group,
+        we generate a Diffie-Hellman public key and send it in a
+        MSG_KEX_DH_GEX_INIT message.
+
+        Payload::
             string g (group generator)
             string p (group prime)
-
-        We generate a Diffie-Hellman public key and send it in a
-        MSG_KEX_DH_GEX_INIT message.
         """
-        if self.kexAlg == 'diffie-hellman-group1-sha1':
+        if _kex.isFixedGroup(self.kexAlg):
             return self._ssh_KEXDH_REPLY(packet)
         else:
             self.p, rest = getMP(packet)
@@ -1170,7 +1247,7 @@ class SSHClientTransport(SSHTransportBase):
         @type signature: C{str}
         """
         serverKey = keys.Key.fromString(pubKey)
-        sharedSecret = _MPpow(f, self.x, DH_PRIME)
+        sharedSecret = _MPpow(f, self.x, self.p)
         h = sha1()
         h.update(NS(self.ourVersionString))
         h.update(NS(self.otherVersionString))
@@ -1190,7 +1267,7 @@ class SSHClientTransport(SSHTransportBase):
 
     def ssh_KEX_DH_GEX_REPLY(self, packet):
         """
-        Called when we receieve a MSG_KEX_DH_GEX_REPLY message.  Payload::
+        Called when we receive a MSG_KEX_DH_GEX_REPLY message.  Payload::
             string server host key
             integer f (server DH public key)
 
@@ -1224,13 +1301,18 @@ class SSHClientTransport(SSHTransportBase):
         """
         serverKey = keys.Key.fromString(pubKey)
         sharedSecret = _MPpow(f, self.x, self.p)
-        h = sha1()
+        h = _kex.getHashProcessor(self.kexAlg)()
         h.update(NS(self.ourVersionString))
         h.update(NS(self.otherVersionString))
         h.update(NS(self.ourKexInitPayload))
         h.update(NS(self.otherKexInitPayload))
         h.update(NS(pubKey))
-        h.update('\x00\x00\x08\x00')
+        h.update(struct.pack(
+            '!LLL',
+            self._dhMinimalGroupSize,
+            self._dhPreferredGroupSize,
+            self._dhMaximalGroupSize,
+            ))
         h.update(MP(self.p))
         h.update(MP(self.g))
         h.update(self.e)
@@ -1255,9 +1337,9 @@ class SSHClientTransport(SSHTransportBase):
 
     def ssh_NEWKEYS(self, packet):
         """
-        Called when we receieve a MSG_NEWKEYS message.  No payload.
+        Called when we receive a MSG_NEWKEYS message.  No payload.
         If we've finished setting up our own keys, start using them.
-        Otherwise, remeber that we've receieved this message.
+        Otherwise, remember that we've received this message.
         """
         if packet != '':
             self.sendDisconnect(DISCONNECT_PROTOCOL_ERROR,
@@ -1272,16 +1354,19 @@ class SSHClientTransport(SSHTransportBase):
 
     def ssh_SERVICE_ACCEPT(self, packet):
         """
-        Called when we receieve a MSG_SERVICE_ACCEPT message.  Payload::
+        Called when we receive a MSG_SERVICE_ACCEPT message.  Payload::
             string service name
 
         Start the service we requested.
         """
-        name = getNS(packet)[0]
-        if name != self.instance.name:
-            self.sendDisconnect(
-                DISCONNECT_PROTOCOL_ERROR,
-                "received accept for service we did not request")
+        if packet == '':
+            log.msg('got SERVICE_ACCEPT without payload')
+        else:
+            name = getNS(packet)[0]
+            if name != self.instance.name:
+                self.sendDisconnect(
+                    DISCONNECT_PROTOCOL_ERROR,
+                    "received accept for service we did not request")
         self.setService(self.instance)
 
 
@@ -1341,7 +1426,7 @@ class SSHCiphers:
     to encrypt and authenticate the SSH connection.
 
     @cvar cipherMap: A dictionary mapping SSH encryption names to 3-tuples of
-                     (<Crypto.Cipher.* name>, <block size>, <counter mode>)
+                     (<Crypto.Cipher.* name>, <block size>, <is counter mode>)
     @cvar macMap: A dictionary mapping SSH MAC names to hash modules.
 
     @ivar outCipType: the string type of the outgoing cipher.
@@ -1356,23 +1441,24 @@ class SSHCiphers:
     @ivar inMAc: see outMAC, but for the incoming MAC.
     """
 
-
     cipherMap = {
-        '3des-cbc':('DES3', 24, 0),
-        'blowfish-cbc':('Blowfish', 16,0 ),
-        'aes256-cbc':('AES', 32, 0),
-        'aes192-cbc':('AES', 24, 0),
-        'aes128-cbc':('AES', 16, 0),
-        'cast128-cbc':('CAST', 16, 0),
-        'aes128-ctr':('AES', 16, 1),
-        'aes192-ctr':('AES', 24, 1),
-        'aes256-ctr':('AES', 32, 1),
-        '3des-ctr':('DES3', 24, 1),
-        'blowfish-ctr':('Blowfish', 16, 1),
-        'cast128-ctr':('CAST', 16, 1),
-        'none':(None, 0, 0),
+        '3des-cbc': ('DES3', 24, False),
+        'blowfish-cbc': ('Blowfish', 16, False),
+        'aes256-cbc': ('AES', 32, False),
+        'aes192-cbc': ('AES', 24, False),
+        'aes128-cbc': ('AES', 16, False),
+        'cast128-cbc': ('CAST', 16, False),
+        'aes128-ctr': ('AES', 16, True),
+        'aes192-ctr': ('AES', 24, True),
+        'aes256-ctr': ('AES', 32, True),
+        '3des-ctr': ('DES3', 24, True),
+        'blowfish-ctr': ('Blowfish', 16, True),
+        'cast128-ctr': ('CAST', 16, True),
+        'none': (None, 0, False),
     }
     macMap = {
+        'hmac-sha2-512': sha512,
+        'hmac-sha2-256': sha256,
         'hmac-sha1': sha1,
         'hmac-md5': md5,
         'none': None
@@ -1447,11 +1533,21 @@ class SSHCiphers:
         mod = self.macMap[mac]
         if not mod:
             return (None, '', '', 0)
-        ds = mod().digest_size
-        key = key[:ds] + '\x00' * (64 - ds)
-        i = XOR.new('\x36').encrypt(key)
-        o = XOR.new('\x5c').encrypt(key)
-        return mod, i, o, ds
+
+        # With stdlib we can only get attributes fron an instantiated object.
+        hashObject = mod()
+        digestSize = hashObject.digest_size
+        blockSize = hashObject.block_size
+
+        # Truncation here appears to contravene RFC 2104, section 2.  However,
+        # implementing the hashing behavior prescribed by the RFC breaks
+        # interoperability with OpenSSH (at least version 5.5p1).
+        key = key[:digestSize] + ('\x00' * (blockSize - digestSize))
+        i = string.translate(key, hmac.trans_36)
+        o = string.translate(key, hmac.trans_5C)
+        result = _MACParams((mod, i, o, digestSize))
+        result.key = key
+        return result
 
 
     def encrypt(self, blocks):
@@ -1487,10 +1583,7 @@ class SSHCiphers:
         if not self.outMAC[0]:
             return ''
         data = struct.pack('>L', seqid) + data
-        mod, i, o, ds = self.outMAC
-        inner = mod(i + data)
-        outer = mod(o + inner.digest())
-        return outer.digest()
+        return hmac.HMAC(self.outMAC.key, data, self.outMAC[0]).digest()
 
 
     def verify(self, seqid, data, mac):
@@ -1509,11 +1602,8 @@ class SSHCiphers:
         if not self.inMAC[0]:
             return mac == ''
         data = struct.pack('>L', seqid) + data
-        mod, i, o, ds = self.inMAC
-        inner = mod(i + data)
-        outer = mod(o + inner.digest())
-        return mac == outer.digest()
-
+        outer = hmac.HMAC(self.inMAC.key, data, self.inMAC[0]).digest()
+        return mac == outer
 
 
 class _Counter:
@@ -1557,14 +1647,8 @@ class _Counter:
 
 
 
-# Diffie-Hellman primes from Oakley Group 2 [RFC 2409]
-DH_PRIME = long('17976931348623159077083915679378745319786029604875601170644'
-'442368419718021615851936894783379586492554150218056548598050364644054819923'
-'910005079287700335581663922955313623907650873575991482257486257500742530207'
-'744771258955095793777842444242661733472762929938766870920560605027081084290'
-'7692932019128194467627007L')
-DH_GENERATOR = 2L
-
+DH_GENERATOR, DH_PRIME = _kex.getDHGeneratorAndPrime(
+    'diffie-hellman-group1-sha1')
 
 
 MSG_DISCONNECT = 1

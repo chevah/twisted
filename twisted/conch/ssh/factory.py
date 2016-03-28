@@ -10,14 +10,13 @@ Maintainer: Paul Swartz
 
 from twisted.internet import protocol
 from twisted.python import log
-from twisted.python.reflect import qual
 
 from twisted.conch import error
-from twisted.conch.ssh import keys
+from twisted.conch.ssh import _kex
 import transport, userauth, connection
 
 import random
-import warnings
+
 
 class SSHFactory(protocol.Factory):
     """
@@ -35,27 +34,8 @@ class SSHFactory(protocol.Factory):
         """
         if not hasattr(self,'publicKeys'):
             self.publicKeys = self.getPublicKeys()
-        for keyType, value in self.publicKeys.items():
-            if isinstance(value, str):
-                warnings.warn("Returning a mapping from strings to "
-                        "strings from getPublicKeys()/publicKeys (in %s) "
-                        "is deprecated.  Return a mapping from "
-                        "strings to Key objects instead." %
-                        (qual(self.__class__)),
-                        DeprecationWarning, stacklevel=1)
-                self.publicKeys[keyType] = keys.Key.fromString(value)
         if not hasattr(self,'privateKeys'):
             self.privateKeys = self.getPrivateKeys()
-        for keyType, value in self.privateKeys.items():
-            if not isinstance(value, keys.Key):
-                warnings.warn("Returning a mapping from strings to "
-                        "PyCrypto key objects from "
-                        "getPrivateKeys()/privateKeys (in %s) "
-                        "is deprecated.  Return a mapping from "
-                        "strings to Key objects instead." %
-                        (qual(self.__class__),),
-                        DeprecationWarning, stacklevel=1)
-                self.privateKeys[keyType] = keys.Key(value)
         if not self.publicKeys or not self.privateKeys:
             raise error.ConchError('no host keys, failing')
         if not hasattr(self,'primes'):
@@ -75,11 +55,11 @@ class SSHFactory(protocol.Factory):
         t = protocol.Factory.buildProtocol(self, addr)
         t.supportedPublicKeys = self.privateKeys.keys()
         if not self.primes:
-            log.msg('disabling diffie-hellman-group-exchange because we '
-                    'cannot find moduli file')
-            ske = t.supportedKeyExchanges[:]
-            ske.remove('diffie-hellman-group-exchange-sha1')
-            t.supportedKeyExchanges = ske
+            log.msg('disabling non-fixed-group key exchange algorithms '
+                    'because we cannot find moduli file')
+            t.supportedKeyExchanges = [
+                kexAlgorithm for kexAlgorithm in t.supportedKeyExchanges
+                if _kex.isFixedGroup(kexAlgorithm)]
         return t
 
 
