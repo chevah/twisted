@@ -3,13 +3,15 @@ functionality. Do NOT change the number of tests in this module.  Do NOT change
 the names the tests in this module.
 """
 
+from __future__ import absolute_import, division
+
 import unittest as pyunit
 from twisted.trial import unittest
 from twisted.python.util import mergeFunctionMetadata
 
 
 
-class FooTest(unittest.TestCase):
+class FooTest(unittest.SynchronousTestCase):
 
 
     def test_foo(self):
@@ -42,7 +44,7 @@ def goodDecorator(fn):
 
 
 
-class DecorationTest(unittest.TestCase):
+class DecorationTest(unittest.SynchronousTestCase):
     def test_badDecorator(self):
         """
         This test method is decorated in a way that gives it a confusing name
@@ -93,7 +95,7 @@ class NotATest(object):
 
 
 
-class AlphabetTest(unittest.TestCase):
+class AlphabetTest(unittest.SynchronousTestCase):
 
 
     def test_a(self):

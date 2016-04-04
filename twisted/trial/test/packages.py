@@ -1,10 +1,34 @@
-import sys, os
+# Copyright (c) Twisted Matrix Laboratories.
+# See LICENSE for details.
+#
+
+"""
+Classes and functions used by L{twisted.trial.test.test_util}
+and L{twisted.trial.test.test_loader}.
+"""
+
+from __future__ import division, absolute_import
+
+import sys
+import os
+
+from twisted.python.compat import _PY3
 from twisted.trial import unittest
+
+if _PY3:
+    # Python 3 has some funny import caching, which we don't want.
+    # invalidate_caches clears it out for us.
+    from importlib import invalidate_caches as invalidateImportCaches
+else:
+    def invalidateImportCaches():
+        """
+        On python 2, import caches don't need to be invalidated.
+        """
 
 testModule = """
 from twisted.trial import unittest
 
-class FooTest(unittest.TestCase):
+class FooTest(unittest.SynchronousTestCase):
     def testFoo(self):
         pass
 """
@@ -21,7 +45,7 @@ Do NOT change the names the tests in this module.
 import unittest as pyunit
 from twisted.trial import unittest
 
-class FooTest(unittest.TestCase):
+class FooTest(unittest.SynchronousTestCase):
     def test_foo(self):
         pass
 
@@ -42,7 +66,7 @@ class NotATest(object):
         pass
 
 
-class AlphabetTest(unittest.TestCase):
+class AlphabetTest(unittest.SynchronousTestCase):
     def test_a(self):
         pass
 
@@ -62,19 +86,19 @@ Do NOT change the names the tests in this module.
 from twisted.trial import unittest
 
 class X(object):
-    
+
     def test_foo(self):
         pass
 
-class A(unittest.TestCase, X):
+class A(unittest.SynchronousTestCase, X):
     pass
 
-class B(unittest.TestCase, X):
+class B(unittest.SynchronousTestCase, X):
     pass
 
 """
 
-class PackageTest(unittest.TestCase):
+class PackageTest(unittest.SynchronousTestCase):
     files = [
         ('badpackage/__init__.py', 'frotz\n'),
         ('badpackage/test_module.py', ''),
@@ -95,6 +119,7 @@ class PackageTest(unittest.TestCase):
         ('inheritancepackage/test_x.py', testInheritanceSample),
         ]
 
+
     def _toModuleName(self, filename):
         name = os.path.splitext(filename)[0]
         segs = name.split('/')
@@ -102,8 +127,13 @@ class PackageTest(unittest.TestCase):
             segs = segs[:-1]
         return '.'.join(segs)
 
+
     def getModules(self):
-        return map(self._toModuleName, zip(*self.files)[0])
+        """
+        Return matching module names for files listed in C{self.files}.
+        """
+        return [self._toModuleName(filename) for (filename, code) in self.files]
+
 
     def cleanUpModules(self):
         modules = self.getModules()
@@ -115,30 +145,37 @@ class PackageTest(unittest.TestCase):
             except KeyError:
                 pass
 
+
     def createFiles(self, files, parentDir='.'):
         for filename, contents in self.files:
             filename = os.path.join(parentDir, filename)
             self._createDirectory(filename)
-            fd = open(filename, 'w')
-            fd.write(contents)
-            fd.close()
+            with open(filename, 'w') as fd:
+                fd.write(contents)
+
 
     def _createDirectory(self, filename):
         directory = os.path.dirname(filename)
         if not os.path.exists(directory):
             os.makedirs(directory)
 
+
     def setUp(self, parentDir=None):
+        invalidateImportCaches()
         if parentDir is None:
             parentDir = self.mktemp()
         self.parent = parentDir
         self.createFiles(self.files, parentDir)
 
+
     def tearDown(self):
         self.cleanUpModules()
 
+
+
 class SysPathManglingTest(PackageTest):
     def setUp(self, parent=None):
+        invalidateImportCaches()
         self.oldPath = sys.path[:]
         self.newPath = sys.path[:]
         if parent is None:
@@ -147,10 +184,11 @@ class SysPathManglingTest(PackageTest):
         self.newPath.append(self.parent)
         self.mangleSysPath(self.newPath)
 
+
     def tearDown(self):
         PackageTest.tearDown(self)
         self.mangleSysPath(self.oldPath)
 
+
     def mangleSysPath(self, pathVar):
         sys.path[:] = pathVar
-
