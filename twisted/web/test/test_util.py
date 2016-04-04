@@ -5,23 +5,26 @@
 Tests for L{twisted.web.util}.
 """
 
+from __future__ import absolute_import, division
+
 from twisted.python.failure import Failure
 from twisted.trial.unittest import TestCase
-from twisted.web import util
+from twisted.internet import defer
+from twisted.python.compat import _PY3, intToBytes, networkString
+from twisted.web import resource, util
 from twisted.web.error import FlattenerError
-from twisted.web.util import (
-    redirectTo, _SourceLineElement,
-    _SourceFragmentElement, _FrameElement, _StackElement,
-    FailureElement, formatFailure)
-
 from twisted.web.http import FOUND
 from twisted.web.server import Request
 from twisted.web.template import TagLoader, flattenString, tags
+from twisted.web.test.requesthelper import DummyChannel, DummyRequest
+from twisted.web.util import DeferredResource
+from twisted.web.util import _SourceFragmentElement, _FrameElement
+from twisted.web.util import _StackElement, FailureElement, formatFailure
+from twisted.web.util import redirectTo, _SourceLineElement
 
-from twisted.web.test.test_web import DummyChannel
 
 
-class RedirectToTestCase(TestCase):
+class RedirectToTests(TestCase):
     """
     Tests for L{redirectTo}.
     """
@@ -33,15 +36,15 @@ class RedirectToTestCase(TestCase):
         be redirected.
         """
         request = Request(DummyChannel(), True)
-        request.method = 'GET'
-        targetURL = "http://target.example.com/4321"
+        request.method = b'GET'
+        targetURL = b"http://target.example.com/4321"
         redirectTo(targetURL, request)
         self.assertEqual(request.code, FOUND)
         self.assertEqual(
-            request.responseHeaders.getRawHeaders('location'), [targetURL])
+            request.responseHeaders.getRawHeaders(b'location'), [targetURL])
         self.assertEqual(
-            request.responseHeaders.getRawHeaders('content-type'),
-            ['text/html; charset=utf-8'])
+            request.responseHeaders.getRawHeaders(b'content-type'),
+            [b'text/html; charset=utf-8'])
 
 
     def test_redirectToUnicodeURL(self) :
@@ -49,7 +52,7 @@ class RedirectToTestCase(TestCase):
         L{redirectTo} will raise TypeError if unicode object is passed in URL
         """
         request = Request(DummyChannel(), True)
-        request.method = 'GET'
+        request.method = b'GET'
         targetURL = u'http://target.example.com/4321'
         self.assertRaises(TypeError, redirectTo, targetURL, request)
 
@@ -68,7 +71,7 @@ class FailureElementTests(TestCase):
             message = "This is a problem"
             raise Exception(message)
         # Figure out the line number from which the exception will be raised.
-        self.base = lineNumberProbeAlsoBroken.func_code.co_firstlineno + 1
+        self.base = lineNumberProbeAlsoBroken.__code__.co_firstlineno + 1
 
         try:
             lineNumberProbeAlsoBroken()
@@ -116,17 +119,27 @@ class FailureElementTests(TestCase):
             u'raised.',
         ]
         d = flattenString(None, element)
-        d.addCallback(
-            self.assertEqual,
-            ''.join([
-                    '<div class="snippet%sLine"><span>%d</span><span>%s</span>'
-                    '</div>' % (
-                        ["", "Highlight"][lineNumber == 1],
-                        self.base + lineNumber,
-                        (u" \N{NO-BREAK SPACE}" * 4 + sourceLine).encode(
-                            'utf-8'))
-                    for (lineNumber, sourceLine)
-                    in enumerate(source)]))
+        if _PY3:
+            stringToCheckFor = ''.join([
+                '<div class="snippet%sLine"><span>%d</span><span>%s</span>'
+                '</div>' % (
+                    ["", "Highlight"][lineNumber == 1],
+                    self.base + lineNumber,
+                    (u" \N{NO-BREAK SPACE}" * 4 + sourceLine))
+                for (lineNumber, sourceLine)
+                in enumerate(source)]).encode("utf8")
+
+        else:
+            stringToCheckFor = ''.join([
+                '<div class="snippet%sLine"><span>%d</span><span>%s</span>'
+                '</div>' % (
+                    ["", "Highlight"][lineNumber == 1],
+                    self.base + lineNumber,
+                    (u" \N{NO-BREAK SPACE}" * 4 + sourceLine).encode('utf8'))
+                for (lineNumber, sourceLine)
+                in enumerate(source)])
+
+        d.addCallback(self.assertEqual, stringToCheckFor)
         return d
 
 
@@ -143,7 +156,8 @@ class FailureElementTests(TestCase):
         d.addCallback(
             # __file__ differs depending on whether an up-to-date .pyc file
             # already existed.
-            self.assertEqual, "<span>" + __file__.rstrip('c') + "</span>")
+            self.assertEqual,
+            b"<span>" + networkString(__file__.rstrip('c')) + b"</span>")
         return d
 
 
@@ -158,7 +172,7 @@ class FailureElementTests(TestCase):
             self.frame)
         d = flattenString(None, element)
         d.addCallback(
-            self.assertEqual, "<span>" + str(self.base + 1) + "</span>")
+            self.assertEqual, b"<span>" + intToBytes(self.base + 1) + b"</span>")
         return d
 
 
@@ -173,7 +187,7 @@ class FailureElementTests(TestCase):
             self.frame)
         d = flattenString(None, element)
         d.addCallback(
-            self.assertEqual, "<span>lineNumberProbeAlsoBroken</span>")
+            self.assertEqual, b"<span>lineNumberProbeAlsoBroken</span>")
         return d
 
 
@@ -233,8 +247,12 @@ class FailureElementTests(TestCase):
         element = FailureElement(
             self.failure, TagLoader(tags.span(render="type")))
         d = flattenString(None, element)
+        if _PY3:
+            exc = b"builtins.Exception"
+        else:
+            exc = b"exceptions.Exception"
         d.addCallback(
-            self.assertEqual, "<span>exceptions.Exception</span>")
+            self.assertEqual, b"<span>" + exc + b"</span>")
         return d
 
 
@@ -247,7 +265,7 @@ class FailureElementTests(TestCase):
             self.failure, TagLoader(tags.span(render="value")))
         d = flattenString(None, element)
         d.addCallback(
-            self.assertEqual, '<span>This is a problem</span>')
+            self.assertEqual, b'<span>This is a problem</span>')
         return d
 
 
@@ -276,105 +294,53 @@ class FormatFailureTests(TestCase):
         except:
             result = formatFailure(Failure())
 
-        self.assertIsInstance(result, str)
-        self.assertTrue(all(ord(ch) < 128 for ch in result))
+        self.assertIsInstance(result, bytes)
+        if _PY3:
+            self.assertTrue(all(ch < 128 for ch in result))
+        else:
+            self.assertTrue(all(ord(ch) < 128 for ch in result))
         # Indentation happens to rely on NO-BREAK SPACE
-        self.assertIn("&#160;", result)
+        self.assertIn(b"&#160;", result)
 
 
 
-class DeprecatedHTMLHelpers(TestCase):
+class SDResource(resource.Resource):
+    def __init__(self,default):
+        self.default = default
+
+
+    def getChildWithDefault(self, name, request):
+        d = defer.succeed(self.default)
+        resource = util.DeferredResource(d)
+        return resource.getChildWithDefault(name, request)
+
+
+
+class DeferredResourceTests(TestCase):
     """
-    The various HTML generation helper APIs in L{twisted.web.util} are
-    deprecated.
+    Tests for L{DeferredResource}.
     """
-    def _htmlHelperDeprecationTest(self, functionName):
-        """
-        Helper method which asserts that using the name indicated by
-        C{functionName} from the L{twisted.web.util} module emits a deprecation
-        warning.
-        """
-        getattr(util, functionName)
-        warnings = self.flushWarnings([self._htmlHelperDeprecationTest])
-        self.assertEqual(warnings[0]['category'], DeprecationWarning)
-        self.assertEqual(
-            warnings[0]['message'],
-            "twisted.web.util.%s was deprecated in Twisted 12.1.0: "
-            "See twisted.web.template." % (functionName,))
+
+    def testDeferredResource(self):
+        r = resource.Resource()
+        r.isLeaf = 1
+        s = SDResource(r)
+        d = DummyRequest(['foo', 'bar', 'baz'])
+        resource.getChildForRequest(s, d)
+        self.assertEqual(d.postpath, ['bar', 'baz'])
 
 
-    def test_htmlrepr(self):
+    def test_render(self):
         """
-        L{twisted.web.util.htmlrepr} is deprecated.
+        L{DeferredResource} uses the request object's C{render} method to
+        render the resource which is the result of the L{Deferred} being
+        handled.
         """
-        self._htmlHelperDeprecationTest("htmlrepr")
+        rendered = []
+        request = DummyRequest([])
+        request.render = rendered.append
 
-
-    def test_saferepr(self):
-        """
-        L{twisted.web.util.saferepr} is deprecated.
-        """
-        self._htmlHelperDeprecationTest("saferepr")
-
-
-    def test_htmlUnknown(self):
-        """
-        L{twisted.web.util.htmlUnknown} is deprecated.
-        """
-        self._htmlHelperDeprecationTest("htmlUnknown")
-
-
-    def test_htmlDict(self):
-        """
-        L{twisted.web.util.htmlDict} is deprecated.
-        """
-        self._htmlHelperDeprecationTest("htmlDict")
-
-
-    def test_htmlList(self):
-        """
-        L{twisted.web.util.htmlList} is deprecated.
-        """
-        self._htmlHelperDeprecationTest("htmlList")
-
-
-    def test_htmlInst(self):
-        """
-        L{twisted.web.util.htmlInst} is deprecated.
-        """
-        self._htmlHelperDeprecationTest("htmlInst")
-
-
-    def test_htmlString(self):
-        """
-        L{twisted.web.util.htmlString} is deprecated.
-        """
-        self._htmlHelperDeprecationTest("htmlString")
-
-
-    def test_htmlIndent(self):
-        """
-        L{twisted.web.util.htmlIndent} is deprecated.
-        """
-        self._htmlHelperDeprecationTest("htmlIndent")
-
-
-    def test_htmlFunc(self):
-        """
-        L{twisted.web.util.htmlFunc} is deprecated.
-        """
-        self._htmlHelperDeprecationTest("htmlFunc")
-
-
-    def test_htmlReprTypes(self):
-        """
-        L{twisted.web.util.htmlReprTypes} is deprecated.
-        """
-        self._htmlHelperDeprecationTest("htmlReprTypes")
-
-
-    def test_stylesheet(self):
-        """
-        L{twisted.web.util.stylesheet} is deprecated.
-        """
-        self._htmlHelperDeprecationTest("stylesheet")
+        result = resource.Resource()
+        deferredResource = DeferredResource(defer.succeed(result))
+        deferredResource.render(request)
+        self.assertEqual(rendered, [result])

@@ -14,12 +14,12 @@ except ImportError:
 
 from zope.interface.verify import verifyObject
 
-from twisted.python import log, filepath
+from twisted.python import filepath
 from twisted.internet import reactor, defer
 from twisted.trial import unittest
 from twisted.spread import pb
 from twisted.spread.banana import SIZE_LIMIT
-from twisted.web import http, distrib, client, resource, static, server
+from twisted.web import distrib, client, resource, static, server
 from twisted.web.test.test_web import DummyRequest
 from twisted.web.test._util import _render
 from twisted.test import proto_helpers
@@ -45,7 +45,7 @@ class PBServerFactory(pb.PBServerFactory):
 
 
 
-class DistribTest(unittest.TestCase):
+class DistribTests(unittest.TestCase):
     port1 = None
     port2 = None
     sub = None
@@ -274,7 +274,28 @@ class DistribTest(unittest.TestCase):
             self.assertEqual(request.responseCode, 500)
             # This is the error we caused the request to fail with.  It should
             # have been logged.
-            self.assertEqual(len(self.flushLoggedErrors(pb.NoSuchMethod)), 1)
+            errors = self.flushLoggedErrors(pb.NoSuchMethod)
+            self.assertEqual(len(errors), 1)
+            # The error page is rendered as HTML.
+            expected = [
+                '',
+                '<html>',
+                '  <head><title>500 - Server Connection Lost</title></head>',
+                '  <body>',
+                '    <h1>Server Connection Lost</h1>',
+                '    <p>Connection to distributed server lost:'
+                    '<pre>'
+                    '[Failure instance: Traceback from remote host -- '
+                    'Traceback unavailable',
+                'twisted.spread.flavors.NoSuchMethod: '
+                    'No such method: remote_request',
+                ']</pre></p>',
+                '  </body>',
+                '</html>',
+                ''
+                ]
+            self.assertEqual(['\n'.join(expected)], request.written)
+
         d.addCallback(cbRendered)
         return d
 
