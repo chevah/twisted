@@ -182,10 +182,12 @@ from itertools import count
 
 from zope.interface import Interface, implements
 
-from twisted.python.compat import set
-from twisted.python.util import unsignedID
 from twisted.python.reflect import accumulateClassDict
 from twisted.python.failure import Failure
+from twisted.python._tzhelper import (
+    FixedOffsetTimeZone as _FixedOffsetTZInfo, UTC as utc
+)
+
 from twisted.python import log, filepath
 
 from twisted.internet.interfaces import IFileDescriptorReceiver
@@ -204,7 +206,68 @@ if ssl and not ssl.supported:
     ssl = None
 
 if ssl is not None:
-    from twisted.internet.ssl import CertificateOptions, Certificate, DN, KeyPair
+    from twisted.internet.ssl import (CertificateOptions, Certificate, DN,
+                                      KeyPair)
+
+
+
+__all__ = [
+    'AMP',
+    'ANSWER',
+    'ASK',
+    'AmpBox',
+    'AmpError',
+    'AmpList',
+    'Argument',
+    'BadLocalReturn',
+    'BinaryBoxProtocol',
+    'Boolean',
+    'Box',
+    'BoxDispatcher',
+    'COMMAND',
+    'Command',
+    'CommandLocator',
+    'Decimal',
+    'Descriptor',
+    'ERROR',
+    'ERROR_CODE',
+    'ERROR_DESCRIPTION',
+    'Float',
+    'IArgumentType',
+    'IBoxReceiver',
+    'IBoxSender',
+    'IResponderLocator',
+    'IncompatibleVersions',
+    'Integer',
+    'InvalidSignature',
+    'ListOf',
+    'MAX_KEY_LENGTH',
+    'MAX_VALUE_LENGTH',
+    'MalformedAmpBox',
+    'NoEmptyBoxes',
+    'OnlyOneTLS',
+    'PROTOCOL_ERRORS',
+    'PYTHON_KEYWORDS',
+    'Path',
+    'ProtocolSwitchCommand',
+    'ProtocolSwitched',
+    'QuitBox',
+    'RemoteAmpError',
+    'SimpleStringLocator',
+    'StartTLS',
+    'String',
+    'TooLong',
+    'UNHANDLED_ERROR_CODE',
+    'UNKNOWN_ERROR_CODE',
+    'UnhandledCommand',
+    'utc',
+    'Unicode',
+    'UnknownRemoteError',
+    'parse',
+    'parseString',
+]
+
+
 
 ASK = '_ask'
 ANSWER = '_answer'
@@ -2397,7 +2460,7 @@ class AMP(BinaryBoxProtocol, BoxDispatcher,
         else:
             innerRepr = ''
         return '<%s%s at 0x%x>' % (
-            self.__class__.__name__, innerRepr, unsignedID(self))
+            self.__class__.__name__, innerRepr, id(self))
 
 
     def makeConnection(self, transport):
@@ -2539,54 +2602,6 @@ def _objectsToStrings(objects, arglist, strings, proto):
 
 
 
-class _FixedOffsetTZInfo(datetime.tzinfo):
-    """
-    Represents a fixed timezone offset (without daylight saving time).
-
-    @ivar name: A C{str} giving the name of this timezone; the name just
-        includes how much time this offset represents.
-
-    @ivar offset: A C{datetime.timedelta} giving the amount of time this
-        timezone is offset.
-    """
-
-    def __init__(self, sign, hours, minutes):
-        self.name = '%s%02i:%02i' % (sign, hours, minutes)
-        if sign == '-':
-            hours = -hours
-            minutes = -minutes
-        elif sign != '+':
-            raise ValueError('invalid sign for timezone %r' % (sign,))
-        self.offset = datetime.timedelta(hours=hours, minutes=minutes)
-
-
-    def utcoffset(self, dt):
-        """
-        Return this timezone's offset from UTC.
-        """
-        return self.offset
-
-
-    def dst(self, dt):
-        """
-        Return a zero C{datetime.timedelta} for the daylight saving time offset,
-        since there is never one.
-        """
-        return datetime.timedelta(0)
-
-
-    def tzname(self, dt):
-        """
-        Return a string describing this timezone.
-        """
-        return self.name
-
-
-
-utc = _FixedOffsetTZInfo('+', 0, 0)
-
-
-
 class Decimal(Argument):
     """
     Encodes C{decimal.Decimal} instances.
@@ -2666,7 +2681,7 @@ class DateTime(Argument):
 
         values = [int(s[p]) for p in self._positions]
         sign = s[26]
-        timezone = _FixedOffsetTZInfo(sign, *values[7:])
+        timezone = _FixedOffsetTZInfo.fromSignHoursMinutes(sign, *values[7:])
         values[7:] = [timezone]
         return datetime.datetime(*values)
 
@@ -2690,7 +2705,7 @@ class DateTime(Argument):
             sign = '-'
 
         # strftime has no way to format the microseconds, or put a ':' in the
-        # timezone. Suprise!
+        # timezone. Surprise!
 
         return '%04i-%02i-%02iT%02i:%02i:%02i.%06i%s%02i:%02i' % (
             i.year,
