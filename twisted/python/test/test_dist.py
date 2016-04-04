@@ -7,17 +7,21 @@ Tests for parts of our release automation system.
 
 
 import os
+import sys
 
-from distutils.core import Distribution
+
+from setuptools.dist import Distribution
 
 from twisted.trial.unittest import TestCase
 
 from twisted.python import dist
-from twisted.python.dist import get_setup_args, ConditionalExtension
+from twisted.python.dist import (get_setup_args, ConditionalExtension,
+                                 build_scripts_twisted, _EXTRAS_REQUIRE)
 from twisted.python.filepath import FilePath
 
 
-class SetupTest(TestCase):
+
+class SetupTests(TestCase):
     """
     Tests for L{get_setup_args}.
     """
@@ -56,7 +60,156 @@ class SetupTest(TestCase):
 
 
 
-class GetVersionTest(TestCase):
+class OptionalDependenciesTests(TestCase):
+    """
+    Tests for L{_EXTRAS_REQUIRE}
+    """
+
+    def test_distributeTakesExtrasRequire(self):
+        """
+        Setuptools' Distribution object parses and stores its C{extras_require}
+        argument as an attribute.
+        """
+        extras = dict(im_an_extra_dependency="thing")
+        attrs = dict(extras_require=extras)
+        distribution = Distribution(attrs)
+        self.assertEqual(
+            extras,
+            distribution.extras_require
+        )
+
+
+    def test_extrasRequireDictContainsKeys(self):
+        """
+        L{_EXTRAS_REQUIRE} contains options for all documented extras: C{dev},
+        C{tls}, C{conch}, C{soap}, C{serial}, C{all_non_platform},
+        C{osx_platform}, and C{windows_platform}.
+        """
+        self.assertIn('dev', _EXTRAS_REQUIRE)
+        self.assertIn('tls', _EXTRAS_REQUIRE)
+        self.assertIn('conch', _EXTRAS_REQUIRE)
+        self.assertIn('soap', _EXTRAS_REQUIRE)
+        self.assertIn('serial', _EXTRAS_REQUIRE)
+        self.assertIn('all_non_platform', _EXTRAS_REQUIRE)
+        self.assertIn('osx_platform', _EXTRAS_REQUIRE)
+        self.assertIn('windows_platform', _EXTRAS_REQUIRE)
+
+
+    def test_extrasRequiresDevDeps(self):
+        """
+        L{_EXTRAS_REQUIRE}'s C{dev} extra contains setuptools requirements for
+        the tools required for Twisted development.
+        """
+        deps = _EXTRAS_REQUIRE['dev']
+        self.assertIn('twistedchecker >= 0.4.0', deps)
+        self.assertIn('pyflakes >= 0.9.2', deps)
+        self.assertIn('twisted-dev-tools >= 0.0.2', deps)
+        self.assertIn('python-subunit', deps)
+        self.assertIn('sphinx >= 1.3.1', deps)
+        self.assertIn('pydoctor >= 15.0.0', deps)
+
+
+    def test_extrasRequiresTlsDeps(self):
+        """
+        L{_EXTRAS_REQUIRE}'s C{tls} extra contains setuptools requirements for
+        the packages required to make Twisted's transport layer security fully
+        work for both clients and servers.
+        """
+        deps = _EXTRAS_REQUIRE['tls']
+        self.assertIn('pyopenssl >= 0.13', deps)
+        self.assertIn('service_identity', deps)
+        self.assertIn('idna >= 0.6', deps)
+
+
+    def test_extrasRequiresConchDeps(self):
+        """
+        L{_EXTRAS_REQUIRE}'s C{conch} extra contains setuptools requirements
+        for the packages required to make Twisted Conch's secure shell server
+        work.
+        """
+        deps = _EXTRAS_REQUIRE['conch']
+        self.assertIn('gmpy', deps)
+        self.assertIn('pyasn1', deps)
+        self.assertIn('pycrypto', deps)
+
+
+    def test_extrasRequiresSoapDeps(self):
+        """
+        L{_EXTRAS_REQUIRE}' C{soap} extra contains setuptools requirements for
+        the packages required to make the C{twisted.web.soap} module function.
+        """
+        self.assertIn(
+            'soappy',
+            _EXTRAS_REQUIRE['soap']
+        )
+
+
+    def test_extrasRequiresSerialDeps(self):
+        """
+        L{_EXTRAS_REQUIRE}'s C{serial} extra contains setuptools requirements
+        for the packages required to make Twisted's serial support work.
+        """
+        self.assertIn(
+            'pyserial',
+            _EXTRAS_REQUIRE['serial']
+        )
+
+
+    def test_extrasRequiresAllNonPlatformDeps(self):
+        """
+        L{_EXTRAS_REQUIRE}'s C{all_non_platform} extra contains setuptools
+        requirements for all of Twisted's optional dependencies which work on
+        all supported operating systems.
+        """
+        deps = _EXTRAS_REQUIRE['all_non_platform']
+        self.assertIn('pyopenssl >= 0.13', deps)
+        self.assertIn('service_identity', deps)
+        self.assertIn('idna >= 0.6', deps)
+        self.assertIn('gmpy', deps)
+        self.assertIn('pyasn1', deps)
+        self.assertIn('pycrypto', deps)
+        self.assertIn('soappy', deps)
+        self.assertIn('pyserial', deps)
+
+
+    def test_extrasRequiresOsxPlatformDeps(self):
+        """
+        L{_EXTRAS_REQUIRE}'s C{osx_platform} extra contains setuptools
+        requirements for all of Twisted's optional dependencies usable on the
+        Mac OS X platform.
+        """
+        deps = _EXTRAS_REQUIRE['osx_platform']
+        self.assertIn('pyopenssl >= 0.13', deps)
+        self.assertIn('service_identity', deps)
+        self.assertIn('idna >= 0.6', deps)
+        self.assertIn('gmpy', deps)
+        self.assertIn('pyasn1', deps)
+        self.assertIn('pycrypto', deps)
+        self.assertIn('soappy', deps)
+        self.assertIn('pyserial', deps)
+        self.assertIn('pyobjc', deps)
+
+
+    def test_extrasRequiresWindowsPlatformDeps(self):
+        """
+        L{_EXTRAS_REQUIRE}'s C{windows_platform} extra contains setuptools
+        requirements for all of Twisted's optional dependencies usable on the
+        Microsoft Windows platform.
+        """
+        deps = _EXTRAS_REQUIRE['windows_platform']
+        self.assertIn('pyopenssl >= 0.13', deps)
+        self.assertIn('service_identity', deps)
+        self.assertIn('idna >= 0.6', deps)
+        self.assertIn('gmpy', deps)
+        self.assertIn('pyasn1', deps)
+        self.assertIn('pycrypto', deps)
+        self.assertIn('soappy', deps)
+        self.assertIn('pyserial', deps)
+        self.assertIn('pypiwin32', deps)
+
+
+
+class GetVersionTests(TestCase):
     """
     Tests for L{dist.getVersion}.
     """
@@ -76,45 +229,15 @@ from twisted.python import versions
 version = versions.Version("twisted", 0, 1, 2)
 """)
         f.close()
-        self.assertEqual(dist.getVersion("core", base=self.dirname), "0.1.2")
-
-    def test_getVersionOther(self):
-        """
-        Test that getting the version of a non-core project reads from
-        the [base]/[projname]/_version.py file.
-        """
-        os.mkdir(os.path.join(self.dirname, "blat"))
-        f = open(os.path.join(self.dirname, "blat", "_version.py"), "w")
-        f.write("""
-from twisted.python import versions
-version = versions.Version("twisted.blat", 9, 8, 10)
-""")
-        f.close()
-        self.assertEqual(dist.getVersion("blat", base=self.dirname), "9.8.10")
+        self.assertEqual(dist.getVersion(base=self.dirname), "0.1.2")
 
 
-class GetScriptsTest(TestCase):
+
+class GetScriptsTests(TestCase):
     """
     Tests for L{dist.getScripts} which returns the scripts which should be
     included in the distribution of a project.
     """
-
-    def test_scriptsInSVN(self):
-        """
-        getScripts should return the scripts associated with a project
-        in the context of Twisted SVN.
-        """
-        basedir = self.mktemp()
-        os.mkdir(basedir)
-        os.mkdir(os.path.join(basedir, 'bin'))
-        os.mkdir(os.path.join(basedir, 'bin', 'proj'))
-        f = open(os.path.join(basedir, 'bin', 'proj', 'exy'), 'w')
-        f.write('yay')
-        f.close()
-        scripts = dist.getScripts('proj', basedir=basedir)
-        self.assertEqual(len(scripts), 1)
-        self.assertEqual(os.path.basename(scripts[0]), 'exy')
-
 
     def test_excludedPreamble(self):
         """
@@ -127,7 +250,7 @@ class GetScriptsTest(TestCase):
         bin.child('_preamble.py').setContent('some preamble code\n')
         bin.child('_preamble.pyc').setContent('some preamble byte code\n')
         bin.child('program').setContent('good program code\n')
-        scripts = dist.getScripts("", basedir=basedir.path)
+        scripts = dist.getScripts(basedir=basedir.path)
         self.assertEqual(scripts, [bin.child('program').path])
 
 
@@ -142,29 +265,15 @@ class GetScriptsTest(TestCase):
         f = open(os.path.join(basedir, 'bin', 'exy'), 'w')
         f.write('yay')
         f.close()
-        scripts = dist.getScripts('proj', basedir=basedir)
+        scripts = dist.getScripts(basedir=basedir)
         self.assertEqual(len(scripts), 1)
         self.assertEqual(os.path.basename(scripts[0]), 'exy')
 
 
-    def test_noScriptsInSVN(self):
-        """
-        When calling getScripts for a project which doesn't actually
-        have any scripts, in the context of an SVN checkout, an
-        empty list should be returned.
-        """
-        basedir = self.mktemp()
-        os.mkdir(basedir)
-        os.mkdir(os.path.join(basedir, 'bin'))
-        os.mkdir(os.path.join(basedir, 'bin', 'otherproj'))
-        scripts = dist.getScripts('noscripts', basedir=basedir)
-        self.assertEqual(scripts, [])
-
-
     def test_getScriptsTopLevel(self):
         """
-        Passing the empty string to getScripts returns scripts that are (only)
-        in the top level bin directory.
+        getScripts returns scripts that are (only) in the top level bin
+        directory.
         """
         basedir = FilePath(self.mktemp())
         basedir.createDirectory()
@@ -176,20 +285,112 @@ class GetScriptsTest(TestCase):
         subdir.createDirectory()
         subdir.child("not-included").setContent("not included")
 
-        scripts = dist.getScripts("", basedir=basedir.path)
+        scripts = dist.getScripts(basedir=basedir.path)
         self.assertEqual(scripts, [included.path])
 
 
-    def test_noScriptsInSubproject(self):
+
+class DummyCommand:
+    """
+    A fake Command.
+    """
+    def __init__(self, **kwargs):
+        for kw, val in kwargs.items():
+            setattr(self, kw, val)
+
+    def ensure_finalized(self):
+        pass
+
+
+
+class BuildScriptsTests(TestCase):
+    """
+    Tests for L{dist.build_scripts_twisted}.
+    """
+
+    def setUp(self):
+        self.source = FilePath(self.mktemp())
+        self.target = FilePath(self.mktemp())
+        self.source.makedirs()
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(self.source.path)
+
+
+    def buildScripts(self):
         """
-        When calling getScripts for a project which doesn't actually
-        have any scripts in the context of that project's individual
-        project structure, an empty list should be returned.
+        Write 3 types of scripts and run the L{build_scripts_twisted}
+        command.
         """
-        basedir = self.mktemp()
-        os.mkdir(basedir)
-        scripts = dist.getScripts('noscripts', basedir=basedir)
-        self.assertEqual(scripts, [])
+        self.writeScript(self.source, "script1",
+                          ("#! /usr/bin/env python2.7\n"
+                           "# bogus script w/ Python sh-bang\n"
+                           "pass\n"))
+
+        self.writeScript(self.source, "script2.py",
+                        ("#!/usr/bin/python\n"
+                         "# bogus script w/ Python sh-bang\n"
+                         "pass\n"))
+
+        self.writeScript(self.source, "shell.sh",
+                        ("#!/bin/sh\n"
+                         "# bogus shell script w/ sh-bang\n"
+                         "exit 0\n"))
+
+        expected = ['script1', 'script2.py', 'shell.sh']
+        cmd = self.getBuildScriptsCmd(self.target,
+                                     [self.source.child(fn).path
+                                      for fn in expected])
+        cmd.finalize_options()
+        cmd.run()
+
+        return self.target.listdir()
+
+
+    def getBuildScriptsCmd(self, target, scripts):
+        """
+        Create a distutils L{Distribution} with a L{DummyCommand} and wrap it
+        in L{build_scripts_twisted}.
+
+        @type target: L{FilePath}
+        """
+        dist = Distribution()
+        dist.scripts = scripts
+        dist.command_obj["build"] = DummyCommand(
+            build_scripts = target.path,
+            force = 1,
+            executable = sys.executable
+        )
+        return build_scripts_twisted(dist)
+
+
+    def writeScript(self, dir, name, text):
+        """
+        Write the script to disk.
+        """
+        with open(dir.child(name).path, "w") as f:
+            f.write(text)
+
+
+    def test_notWindows(self):
+        """
+        L{build_scripts_twisted} does not rename scripts on non-Windows
+        platforms.
+        """
+        self.patch(os, "name", "twisted")
+        built = self.buildScripts()
+        for name in ['script1', 'script2.py', 'shell.sh']:
+            self.assertTrue(name in built)
+
+
+    def test_windows(self):
+        """
+        L{build_scripts_twisted} renames scripts so they end with '.py' on
+        the Windows platform.
+        """
+        self.patch(os, "name", "nt")
+        built = self.buildScripts()
+        for name in ['script1.py', 'script2.py', 'shell.sh.py']:
+            self.assertTrue(name in built)
 
 
 
@@ -206,6 +407,7 @@ class FakeModule(object):
         """
         self._attrs = attrs
 
+
     def __getattr__(self, name):
         """
         Gets an attribute of this fake module from its attrs.
@@ -221,14 +423,12 @@ class FakeModule(object):
 
 fakeCPythonPlatform = FakeModule({"python_implementation": lambda: "CPython"})
 fakeOtherPlatform = FakeModule({"python_implementation": lambda: "lvhpy"})
-emptyPlatform = FakeModule({})
 
 
 
 class WithPlatformTests(TestCase):
     """
-    Tests for L{_checkCPython} when used with a (fake) recent C{platform}
-    module.
+    Tests for L{_checkCPython} when used with a (fake) C{platform} module.
     """
     def test_cpython(self):
         """
@@ -244,73 +444,3 @@ class WithPlatformTests(TestCase):
         says we're not running on CPython.
         """
         self.assertFalse(dist._checkCPython(platform=fakeOtherPlatform))
-
-
-
-fakeCPythonSys = FakeModule({"subversion": ("CPython", None, None)})
-fakeOtherSys = FakeModule({"subversion": ("lvhpy", None, None)})
-
-
-def _checkCPythonWithEmptyPlatform(sys):
-    """
-    A partially applied L{_checkCPython} that uses an empty C{platform}
-    module (otherwise the code this test case is supposed to test won't
-    even be called).
-    """
-    return dist._checkCPython(platform=emptyPlatform, sys=sys)
-
-
-
-class WithSubversionTest(TestCase):
-    """
-    Tests for L{_checkCPython} when used with a (fake) recent (2.5+)
-    C{sys.subversion}. This is effectively only relevant for 2.5, since 2.6 and
-    beyond have L{platform.python_implementation}, which is tried first.
-    """
-    def test_cpython(self):
-        """
-        L{_checkCPython} returns C{True} when C{platform.python_implementation}
-        is unavailable and C{sys.subversion} says we're running on CPython.
-        """
-        isCPython = _checkCPythonWithEmptyPlatform(fakeCPythonSys)
-        self.assertTrue(isCPython)
-
-
-    def test_other(self):
-        """
-        L{_checkCPython} returns C{False} when C{platform.python_implementation}
-        is unavailable and C{sys.subversion} says we're not running on CPython.
-        """
-        isCPython = _checkCPythonWithEmptyPlatform(fakeOtherSys)
-        self.assertFalse(isCPython)
-
-
-
-oldCPythonSys = FakeModule({"modules": {}})
-oldPypySys = FakeModule({"modules": {"__pypy__": None}})
-
-
-class OldPythonsFallbackTest(TestCase):
-    """
-    Tests for L{_checkCPython} when used on a Python 2.4-like platform, when
-    neither C{platform.python_implementation} nor C{sys.subversion} is
-    available.
-    """
-    def test_cpython(self):
-        """
-        L{_checkCPython} returns C{True} when both
-        C{platform.python_implementation} and C{sys.subversion} are unavailable
-        and there is no C{__pypy__} module in C{sys.modules}.
-        """
-        isCPython = _checkCPythonWithEmptyPlatform(oldCPythonSys)
-        self.assertTrue(isCPython)
-
-
-    def test_pypy(self):
-        """
-        L{_checkCPython} returns C{False} when both
-        C{platform.python_implementation} and C{sys.subversion} are unavailable
-        and there is a C{__pypy__} module in C{sys.modules}.
-        """
-        isCPython = _checkCPythonWithEmptyPlatform(oldPypySys)
-        self.assertFalse(isCPython)

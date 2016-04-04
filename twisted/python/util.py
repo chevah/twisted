@@ -2,8 +2,9 @@
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
-import os, sys, errno, inspect, warnings
-import types
+from __future__ import division, absolute_import, print_function
+
+import os, sys, errno, warnings
 try:
     import pwd, grp
 except ImportError:
@@ -12,7 +13,20 @@ try:
     from os import setgroups, getgroups
 except ImportError:
     setgroups = getgroups = None
-from UserDict import UserDict
+
+from twisted.python.compat import _PY3, unicode
+from twisted.python.versions import Version
+from twisted.python.deprecate import deprecatedModuleAttribute
+
+# For backwards compatibility, some things import this, so just link it
+from collections import OrderedDict
+
+deprecatedModuleAttribute(
+    Version("Twisted", 15, 5, 0),
+    "Use collections.OrderedDict instead.",
+    "twisted.python.util",
+    "OrderedDict")
+
 
 
 class InsensitiveDict:
@@ -40,7 +54,7 @@ class InsensitiveDict:
         del self.data[k]
 
     def _lowerOrReturn(self, key):
-        if isinstance(key, str) or isinstance(key, unicode):
+        if isinstance(key, bytes) or isinstance(key, unicode):
             return key.lower()
         else:
             return key
@@ -59,11 +73,12 @@ class InsensitiveDict:
     def has_key(self, key):
         """Case insensitive test whether 'key' exists."""
         k = self._lowerOrReturn(key)
-        return self.data.has_key(k)
-    __contains__=has_key
+        return k in self.data
+
+    __contains__ = has_key
 
     def _doPreserve(self, key):
-        if not self.preserve and (isinstance(key, str)
+        if not self.preserve and (isinstance(key, bytes)
                                   or isinstance(key, unicode)):
             return key.lower()
         else:
@@ -107,15 +122,15 @@ class InsensitiveDict:
         return "InsensitiveDict({%s})" % items
 
     def iterkeys(self):
-        for v in self.data.itervalues():
+        for v in self.data.values():
             yield self._doPreserve(v[0])
 
     def itervalues(self):
-        for v in self.data.itervalues():
+        for v in self.data.values():
             yield v[1]
 
     def iteritems(self):
-        for (k, v) in self.data.itervalues():
+        for (k, v) in self.data.values():
             yield self._doPreserve(k), v
 
     def popitem(self):
@@ -139,69 +154,7 @@ class InsensitiveDict:
                 return 0
         return len(self)==len(other)
 
-class OrderedDict(UserDict):
-    """A UserDict that preserves insert order whenever possible."""
-    def __init__(self, dict=None, **kwargs):
-        self._order = []
-        self.data = {}
-        if dict is not None:
-            if hasattr(dict,'keys'):
-                self.update(dict)
-            else:
-                for k,v in dict: # sequence
-                    self[k] = v
-        if len(kwargs):
-            self.update(kwargs)
-    def __repr__(self):
-        return '{'+', '.join([('%r: %r' % item) for item in self.items()])+'}'
 
-    def __setitem__(self, key, value):
-        if not self.has_key(key):
-            self._order.append(key)
-        UserDict.__setitem__(self, key, value)
-
-    def copy(self):
-        return self.__class__(self)
-
-    def __delitem__(self, key):
-        UserDict.__delitem__(self, key)
-        self._order.remove(key)
-
-    def iteritems(self):
-        for item in self._order:
-            yield (item, self[item])
-
-    def items(self):
-        return list(self.iteritems())
-
-    def itervalues(self):
-        for item in self._order:
-            yield self[item]
-
-    def values(self):
-        return list(self.itervalues())
-
-    def iterkeys(self):
-        return iter(self._order)
-
-    def keys(self):
-        return list(self._order)
-
-    def popitem(self):
-        key = self._order[-1]
-        value = self[key]
-        del self[key]
-        return (key, value)
-
-    def setdefault(self, item, default):
-        if self.has_key(item):
-            return self[item]
-        self[item] = default
-        return default
-
-    def update(self, d):
-        for k, v in d.items():
-            self[k] = v
 
 def uniquify(lst):
     """Make the elements of a list unique by inserting them into a dictionary.
@@ -210,12 +163,14 @@ def uniquify(lst):
     dct = {}
     result = []
     for k in lst:
-        if not dct.has_key(k): result.append(k)
+        if k not in dct:
+            result.append(k)
         dct[k] = 1
     return result
 
 def padTo(n, seq, default=None):
-    """Pads a sequence out to n elements,
+    """
+    Pads a sequence out to n elements,
 
     filling in with a default value if it is not long enough.
 
@@ -227,7 +182,7 @@ def padTo(n, seq, default=None):
     """
 
     if len(seq) > n:
-        raise ValueError, "%d elements is more than %d." % (len(seq), n)
+        raise ValueError("%d elements is more than %d." % (len(seq), n))
 
     blank = [default] * n
 
@@ -235,7 +190,11 @@ def padTo(n, seq, default=None):
 
     return blank
 
+
 def getPluginDirs():
+    warnings.warn(
+        "twisted.python.util.getPluginDirs is deprecated since Twisted 12.2.",
+        DeprecationWarning, stacklevel=2)
     import twisted
     systemPlugins = os.path.join(os.path.dirname(os.path.dirname(
                             os.path.abspath(twisted.__file__))), 'plugins')
@@ -244,13 +203,19 @@ def getPluginDirs():
     allPlugins = filter(os.path.isdir, [systemPlugins, userPlugins, confPlugins])
     return allPlugins
 
+
 def addPluginDir():
+    warnings.warn(
+        "twisted.python.util.addPluginDir is deprecated since Twisted 12.2.",
+        DeprecationWarning, stacklevel=2)
     sys.path.extend(getPluginDirs())
 
-def sibpath(path, sibling):
-    """Return the path to a sibling of a file in the filesystem.
 
-    This is useful in conjunction with the special __file__ attribute
+def sibpath(path, sibling):
+    """
+    Return the path to a sibling of a file in the filesystem.
+
+    This is useful in conjunction with the special C{__file__} attribute
     that Python provides for modules, so modules can load associated
     resource files.
     """
@@ -258,11 +223,13 @@ def sibpath(path, sibling):
 
 
 def _getpass(prompt):
-    """Helper to turn IOErrors into KeyboardInterrupts"""
+    """
+    Helper to turn IOErrors into KeyboardInterrupts.
+    """
     import getpass
     try:
         return getpass.getpass(prompt)
-    except IOError, e:
+    except IOError as e:
         if e.errno == errno.EINTR:
             raise KeyboardInterrupt
         raise
@@ -361,20 +328,19 @@ def spewer(frame, s, ignored):
     A trace function for sys.settrace that prints every function or method call.
     """
     from twisted.python import reflect
-    if frame.f_locals.has_key('self'):
+    if 'self' in frame.f_locals:
         se = frame.f_locals['self']
         if hasattr(se, '__class__'):
             k = reflect.qual(se.__class__)
         else:
             k = reflect.qual(type(se))
-        print 'method %s of %s at %s' % (
-            frame.f_code.co_name, k, id(se)
-        )
+        print('method %s of %s at %s' % (
+                frame.f_code.co_name, k, id(se)))
     else:
-        print 'function %s in %s, line %s' % (
-            frame.f_code.co_name,
-            frame.f_code.co_filename,
-            frame.f_lineno)
+        print('function %s in %s, line %s' % (
+                frame.f_code.co_name,
+                frame.f_code.co_filename,
+                frame.f_lineno))
 
 
 def searchupwards(start, files=[], dirs=[]):
@@ -451,7 +417,7 @@ def raises(exception, f, *args, **kwargs):
     return 0
 
 
-class IntervalDifferential:
+class IntervalDifferential(object):
     """
     Given a list of intervals, generate the amount of time to sleep between
     "instants".
@@ -486,14 +452,14 @@ class IntervalDifferential:
         return _IntervalDifferentialIterator(self.intervals, self.default)
 
 
-class _IntervalDifferentialIterator:
+class _IntervalDifferentialIterator(object):
     def __init__(self, i, d):
 
         self.intervals = [[e, e, n] for (e, n) in zip(i, range(len(i)))]
         self.default = d
         self.last = 0
 
-    def next(self):
+    def __next__(self):
         if not self.intervals:
             return (self.default, None)
         last, index = self.intervals[0][0], self.intervals[0][2]
@@ -502,6 +468,9 @@ class _IntervalDifferentialIterator:
         result = last - self.last
         self.last = last
         return result, index
+
+    # Iterators on Python 2 use next(), not __next__()
+    next = __next__
 
     def addInterval(self, i):
         if self.intervals:
@@ -520,30 +489,57 @@ class _IntervalDifferentialIterator:
                     if i[2] > index:
                         i[2] -= 1
                 return
-        raise ValueError, "Specified interval not in IntervalDifferential"
+        raise ValueError("Specified interval not in IntervalDifferential")
+
 
 
 class FancyStrMixin:
     """
-    Set showAttributes to a sequence of strings naming attributes, OR
-    sequences of C{(attributeName, displayName, formatCharacter)}.
+    Mixin providing a flexible implementation of C{__str__}.
+
+    C{__str__} output will begin with the name of the class, or the contents
+    of the attribute C{fancybasename} if it is set.
+
+    The body of C{__str__} can be controlled by overriding C{showAttributes} in
+    a subclass.  Set C{showAttributes} to a sequence of strings naming
+    attributes, or sequences of C{(attributeName, callable)}, or sequences of
+    C{(attributeName, displayName, formatCharacter)}. In the second case, the
+    callable is passed the value of the attribute and its return value used in
+    the output of C{__str__}.  In the final case, the attribute is looked up
+    using C{attributeName}, but the output uses C{displayName} instead, and
+    renders the value of the attribute using C{formatCharacter}, e.g. C{"%.3f"}
+    might be used for a float.
     """
+    # Override in subclasses:
     showAttributes = ()
+
+
     def __str__(self):
-        r = ['<', hasattr(self, 'fancybasename') and self.fancybasename or self.__class__.__name__]
+        r = ['<', (hasattr(self, 'fancybasename') and self.fancybasename)
+             or self.__class__.__name__]
         for attr in self.showAttributes:
             if isinstance(attr, str):
                 r.append(' %s=%r' % (attr, getattr(self, attr)))
+            elif len(attr) == 2:
+                r.append((' %s=' % (attr[0],)) + attr[1](getattr(self, attr[0])))
             else:
                 r.append((' %s=' + attr[2]) % (attr[1], getattr(self, attr[0])))
         r.append('>')
         return ''.join(r)
+
     __repr__ = __str__
 
 
 
 class FancyEqMixin:
+    """
+    Mixin that implements C{__eq__} and C{__ne__}.
+
+    Comparison is done using the list of attributes defined in
+    C{compareAttributes}.
+    """
     compareAttributes = ()
+
     def __eq__(self, other):
         if not self.compareAttributes:
             return self is other
@@ -563,13 +559,14 @@ class FancyEqMixin:
 
 
 try:
-    from twisted.python._initgroups import initgroups as _c_initgroups
+    # initgroups is available in Python 2.7+ on UNIX-likes
+    from os import initgroups as _initgroups
 except ImportError:
-    _c_initgroups = None
+    _initgroups = None
 
 
 
-if pwd is None or grp is None or setgroups is None or getgroups is None:
+if _initgroups is None:
     def initgroups(uid, primaryGid):
         """
         Do nothing.
@@ -577,42 +574,11 @@ if pwd is None or grp is None or setgroups is None or getgroups is None:
         Underlying platform support require to manipulate groups is missing.
         """
 else:
-    # Fallback to the inefficient Python version
-    def _setgroups_until_success(l):
-        while(1):
-            # NASTY NASTY HACK (but glibc does it so it must be okay):
-            # In case sysconfig didn't give the right answer, find the limit
-            # on max groups by just looping, trying to set fewer and fewer
-            # groups each time until it succeeds.
-            try:
-                setgroups(l)
-            except ValueError:
-                # This exception comes from python itself restricting
-                # number of groups allowed.
-                if len(l) > 1:
-                    del l[-1]
-                else:
-                    raise
-            except OSError, e:
-                if e.errno == errno.EINVAL and len(l) > 1:
-                    # This comes from the OS saying too many groups
-                    del l[-1]
-                else:
-                    raise
-            else:
-                # Success, yay!
-                return
-
     def initgroups(uid, primaryGid):
         """
         Initializes the group access list.
 
-        If the C extension is present, we're calling it, which in turn calls
-        initgroups(3).
-
-        If not, this is done by reading the group database /etc/group and using
-        all groups of which C{uid} is a member.  The additional group
-        C{primaryGid} is also added to the list.
+        This uses the stdlib support which calls initgroups(3) under the hood.
 
         If the given user is a member of more than C{NGROUPS}, arbitrary
         groups will be silently discarded to bring the number below that
@@ -625,35 +591,7 @@ else:
         @param primaryGid: If provided, an additional GID to include when
             setting the groups.
         """
-        if _c_initgroups is not None:
-            return _c_initgroups(pwd.getpwuid(uid)[0], primaryGid)
-        try:
-            # Try to get the maximum number of groups
-            max_groups = os.sysconf("SC_NGROUPS_MAX")
-        except:
-            # No predefined limit
-            max_groups = 0
-
-        username = pwd.getpwuid(uid)[0]
-        l = []
-        if primaryGid is not None:
-            l.append(primaryGid)
-        for groupname, password, gid, userlist in grp.getgrall():
-            if username in userlist:
-                l.append(gid)
-                if len(l) == max_groups:
-                    break # No more groups, ignore any more
-        try:
-            _setgroups_until_success(l)
-        except OSError, e:
-            # We might be able to remove this code now that we
-            # don't try to setgid/setuid even when not asked to.
-            if e.errno == errno.EPERM:
-                for g in getgroups():
-                    if g not in l:
-                        raise
-            else:
-                raise
+        return _initgroups(pwd.getpwuid(uid)[0], primaryGid)
 
 
 
@@ -756,50 +694,28 @@ class SubclassableCStringIO(object):
 
 
 def untilConcludes(f, *a, **kw):
+    """
+    Call C{f} with the given arguments, handling C{EINTR} by retrying.
+
+    @param f: A function to call.
+
+    @param *a: Positional arguments to pass to C{f}.
+
+    @param **kw: Keyword arguments to pass to C{f}.
+
+    @return: Whatever C{f} returns.
+
+    @raise: Whatever C{f} raises, except for C{IOError} or C{OSError} with
+        C{errno} set to C{EINTR}.
+    """
     while True:
         try:
             return f(*a, **kw)
-        except (IOError, OSError), e:
+        except (IOError, OSError) as e:
             if e.args[0] == errno.EINTR:
                 continue
             raise
 
-_idFunction = id
-
-def setIDFunction(idFunction):
-    """
-    Change the function used by L{unsignedID} to determine the integer id value
-    of an object.  This is largely useful for testing to give L{unsignedID}
-    deterministic, easily-controlled behavior.
-
-    @param idFunction: A function with the signature of L{id}.
-    @return: The previous function being used by L{unsignedID}.
-    """
-    global _idFunction
-    oldIDFunction = _idFunction
-    _idFunction = idFunction
-    return oldIDFunction
-
-
-# A value about twice as large as any Python int, to which negative values
-# from id() will be added, moving them into a range which should begin just
-# above where positive values from id() leave off.
-_HUGEINT = (sys.maxint + 1L) * 2L
-def unsignedID(obj):
-    """
-    Return the id of an object as an unsigned number so that its hex
-    representation makes sense.
-
-    This is mostly necessary in Python 2.4 which implements L{id} to sometimes
-    return a negative value.  Python 2.3 shares this behavior, but also
-    implements hex and the %x format specifier to represent negative values as
-    though they were positive ones, obscuring the behavior of L{id}.  Python
-    2.5's implementation of L{id} always returns positive values.
-    """
-    rval = _idFunction(obj)
-    if rval < 0:
-        rval += _HUGEINT
-    return rval
 
 
 def mergeFunctionMetadata(f, g):
@@ -807,36 +723,27 @@ def mergeFunctionMetadata(f, g):
     Overwrite C{g}'s name and docstring with values from C{f}.  Update
     C{g}'s instance dictionary with C{f}'s.
 
-    To use this function safely you must use the return value. In Python 2.3,
-    L{mergeFunctionMetadata} will create a new function. In later versions of
-    Python, C{g} will be mutated and returned.
-
     @return: A function that has C{g}'s behavior and metadata merged from
         C{f}.
     """
     try:
         g.__name__ = f.__name__
     except TypeError:
-        try:
-            merged = types.FunctionType(
-                g.func_code, g.func_globals,
-                f.__name__, inspect.getargspec(g)[-1],
-                g.func_closure)
-        except TypeError:
-            pass
-    else:
-        merged = g
+        pass
     try:
-        merged.__doc__ = f.__doc__
+        g.__doc__ = f.__doc__
     except (TypeError, AttributeError):
         pass
     try:
-        merged.__dict__.update(g.__dict__)
-        merged.__dict__.update(f.__dict__)
+        g.__dict__.update(f.__dict__)
     except (TypeError, AttributeError):
         pass
-    merged.__module__ = f.__module__
-    return merged
+    try:
+        g.__module__ = f.__module__
+    except TypeError:
+        pass
+    return g
+
 
 
 def nameToLabel(mname):
@@ -973,11 +880,46 @@ def runAsEffectiveUser(euid, egid, function, *args, **kwargs):
 
 
 
+def runWithWarningsSuppressed(suppressedWarnings, f, *args, **kwargs):
+    """
+    Run C{f(*args, **kwargs)}, but with some warnings suppressed.
+
+    Unlike L{twisted.internet.utils.runWithWarningsSuppressed}, it has no
+    special support for L{twisted.internet.defer.Deferred}.
+
+    @param suppressedWarnings: A list of arguments to pass to filterwarnings.
+        Must be a sequence of 2-tuples (args, kwargs).
+
+    @param f: A callable.
+
+    @param args: Arguments for C{f}.
+
+    @param kwargs: Keyword arguments for C{f}
+
+    @return: The result of C{f(*args, **kwargs)}.
+    """
+    with warnings.catch_warnings():
+        for a, kw in suppressedWarnings:
+            warnings.filterwarnings(*a, **kw)
+        return f(*args, **kwargs)
+
+
+
 __all__ = [
     "uniquify", "padTo", "getPluginDirs", "addPluginDir", "sibpath",
     "getPassword", "println", "makeStatBar", "OrderedDict",
     "InsensitiveDict", "spewer", "searchupwards", "LineLog",
     "raises", "IntervalDifferential", "FancyStrMixin", "FancyEqMixin",
-    "switchUID", "SubclassableCStringIO", "unsignedID", "mergeFunctionMetadata",
+    "switchUID", "SubclassableCStringIO", "mergeFunctionMetadata",
     "nameToLabel", "uidFromString", "gidFromString", "runAsEffectiveUser",
+    "untilConcludes", "runWithWarningsSuppressed",
 ]
+
+
+if _PY3:
+    __notported__ = ["SubclassableCStringIO", "LineLog", "makeStatBar"]
+    for name in __all__[:]:
+        if name in __notported__:
+            __all__.remove(name)
+            del globals()[name]
+    del name, __notported__

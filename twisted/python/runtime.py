@@ -2,12 +2,20 @@
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
+from __future__ import division, absolute_import
 
-# System imports
 import os
 import sys
 import time
 import imp
+import warnings
+
+from twisted.python import compat
+
+if compat._PY3:
+    _threadModule = "_thread"
+else:
+    _threadModule = "thread"
 
 
 
@@ -37,7 +45,9 @@ _timeFunctions = {
 
 
 class Platform:
-    """Gives us information about the platform we're running on"""
+    """
+    Gives us information about the platform we're running on.
+    """
 
     type = knownPlatforms.get(os.name)
     seconds = staticmethod(_timeFunctions.get(type, time.time))
@@ -52,41 +62,61 @@ class Platform:
 
 
     def isKnown(self):
-        """Do we know about this platform?"""
+        """
+        Do we know about this platform?
+
+        @return: Boolean indicating whether this is a known platform or not.
+        @rtype: C{bool}
+        """
         return self.type != None
 
 
     def getType(self):
-        """Return 'posix', 'win32' or 'java'"""
+        """
+        Get platform type.
+
+        @return: Either 'posix', 'win32' or 'java'
+        @rtype: C{str}
+        """
         return self.type
 
 
     def isMacOSX(self):
-        """Check if current platform is Mac OS X.
+        """
+        Check if current platform is Mac OS X.
 
-        @return: C{True} if the current platform has been detected as OS X
+        @return: C{True} if the current platform has been detected as OS X.
         @rtype: C{bool}
         """
         return self._platform == "darwin"
 
 
     def isWinNT(self):
-        """Are we running in Windows NT?"""
-        if self.getType() == 'win32':
-            import _winreg
-            try:
-                k = _winreg.OpenKeyEx(
-                        _winreg.HKEY_LOCAL_MACHINE,
-                        r'Software\Microsoft\Windows NT\CurrentVersion')
-                _winreg.QueryValueEx(k, 'SystemRoot')
-                return 1
-            except WindowsError:
-                return 0
-        # not windows NT
-        return 0
+        """
+        Are we running in Windows NT?
+
+        This is deprecated and always returns C{True} on win32 because
+        Twisted only supports Windows NT-derived platforms at this point.
+
+        @return: C{True} if the current platform has been detected as
+            Windows NT.
+        @rtype: C{bool}
+        """
+        warnings.warn(
+                "twisted.python.runtime.Platform.isWinNT was deprecated in "
+                "Twisted 13.0. Use Platform.isWindows instead.",
+                DeprecationWarning, stacklevel=2)
+        return self.isWindows()
 
 
     def isWindows(self):
+        """
+        Are we running in Windows?
+
+        @return: C{True} if the current platform has been detected as
+            Windows.
+        @rtype: C{bool}
+        """
         return self.getType() == 'win32'
 
 
@@ -113,11 +143,44 @@ class Platform:
         return self._platform.startswith("linux")
 
 
+    def isDocker(self, _initCGroupLocation="/proc/1/cgroup"):
+        """
+        Check if the current platform is Linux in a Docker container.
+
+        @return: C{True} if the current platform has been detected as Linux
+            inside a Docker container.
+        @rtype: C{bool}
+        """
+        if not self.isLinux():
+            return False
+
+        from twisted.python.filepath import FilePath
+
+        # Ask for the cgroups of init (pid 1)
+        initCGroups = FilePath(_initCGroupLocation)
+        if initCGroups.exists():
+            # The cgroups file looks like "2:cpu:/". The third element will
+            # begin with /docker if it is inside a Docker container.
+            controlGroups = [x.split(b":")
+                             for x in initCGroups.getContent().split(b"\n")]
+
+            for group in controlGroups:
+                if len(group) == 3 and group[2].startswith(b"/docker/"):
+                    # If it starts with /docker/, we're in a docker container
+                    return True
+
+        return False
+
+
     def supportsThreads(self):
-        """Can threads be created?
+        """
+        Can threads be created?
+
+        @return: C{True} if the threads are supported on the current platform.
+        @rtype: C{bool}
         """
         try:
-            return imp.find_module('thread')[0] is None
+            return imp.find_module(_threadModule)[0] is None
         except ImportError:
             return False
 
@@ -132,6 +195,10 @@ class Platform:
             from twisted.python._inotify import INotifyError, init
         except ImportError:
             return False
+
+        if self.isDocker():
+            return False
+
         try:
             os.close(init())
         except INotifyError:

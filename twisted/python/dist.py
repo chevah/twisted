@@ -1,9 +1,29 @@
+# -*- test-case-name: twisted.python.test.test_dist -*-
+# Copyright (c) Twisted Matrix Laboratories.
+# See LICENSE for details.
+
 """
 Distutils convenience functionality.
 
 Don't use this outside of Twisted.
 
 Maintainer: Christopher Armstrong
+
+@var _EXTRA_OPTIONS: These are the actual package names and versions that will
+    be used by C{extras_require}.  This is not passed to setup directly so that
+    combinations of the packages can be created without the need to copy
+    package names multiple times.
+
+@var _EXTRAS_REQUIRE: C{extras_require} is a dictionary of items that can be
+    passed to setup.py to install optional dependencies.  For example, to
+    install the optional dev dependencies one would type::
+
+        pip install -e ".[dev]"
+
+    This has been supported by setuptools since 0.5a4.
+
+@var _PLATFORM_INDEPENDENT: A list of all optional cross-platform dependencies,
+    as setuptools version specifiers, used to populate L{_EXTRAS_REQUIRE}.
 """
 
 from distutils.command import build_scripts, install_data, build_ext
@@ -15,11 +35,73 @@ import os
 import platform
 import sys
 
+from twisted import copyright
+from twisted.python.compat import execfile
 
-twisted_subprojects = ["conch", "lore", "mail", "names",
-                       "news", "pair", "runner", "web",
-                       "words"]
+STATIC_PACKAGE_METADATA = dict(
+    name="Twisted",
+    version=copyright.version,
+    description="An asynchronous networking framework written in Python",
+    author="Twisted Matrix Laboratories",
+    author_email="twisted-python@twistedmatrix.com",
+    maintainer="Glyph Lefkowitz",
+    maintainer_email="glyph@twistedmatrix.com",
+    url="http://twistedmatrix.com/",
+    license="MIT",
+    long_description="""\
+An extensible framework for Python programming, with special focus
+on event-based network programming and multiprotocol integration.
+""",
+    classifiers=[
+        "Programming Language :: Python :: 2.7",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.3",
+        "Programming Language :: Python :: 3.4",
+        ],
+    )
 
+
+
+_EXTRA_OPTIONS = dict(
+    dev=['twistedchecker >= 0.4.0',
+         'pyflakes >= 0.9.2',
+         'twisted-dev-tools >= 0.0.2',
+         'python-subunit',
+         'sphinx >= 1.3.1',
+         'pydoctor >= 15.0.0'],
+    tls=['pyopenssl >= 0.13',
+         'service_identity',
+         'idna >= 0.6'],
+    conch=['gmpy',
+           'pyasn1',
+           'pycrypto'],
+    soap=['soappy'],
+    serial=['pyserial'],
+    osx=['pyobjc'],
+    windows=['pypiwin32']
+)
+
+_PLATFORM_INDEPENDENT = (
+    _EXTRA_OPTIONS['tls'] +
+    _EXTRA_OPTIONS['conch'] +
+    _EXTRA_OPTIONS['soap'] +
+    _EXTRA_OPTIONS['serial']
+)
+
+_EXTRAS_REQUIRE = {
+    'dev': _EXTRA_OPTIONS['dev'],
+    'tls': _EXTRA_OPTIONS['tls'],
+    'conch': _EXTRA_OPTIONS['conch'],
+    'soap': _EXTRA_OPTIONS['soap'],
+    'serial': _EXTRA_OPTIONS['serial'],
+    'all_non_platform': _PLATFORM_INDEPENDENT,
+    'osx_platform': (
+        _EXTRA_OPTIONS['osx'] + _PLATFORM_INDEPENDENT
+    ),
+    'windows_platform': (
+        _EXTRA_OPTIONS['windows'] + _PLATFORM_INDEPENDENT
+    ),
+}
 
 
 class ConditionalExtension(Extension):
@@ -43,9 +125,6 @@ def setup(**kw):
     An alternative to distutils' setup() which is specially designed
     for Twisted subprojects.
 
-    Pass twisted_subproject=projname if you want package and data
-    files to automatically be found for you.
-
     @param conditionalExtensions: Extensions to optionally build.
     @type conditionalExtensions: C{list} of L{ConditionalExtension}
     """
@@ -53,31 +132,12 @@ def setup(**kw):
 
 
 def get_setup_args(**kw):
-    if 'twisted_subproject' in kw:
-        if 'twisted' not in os.listdir('.'):
-            raise RuntimeError("Sorry, you need to run setup.py from the "
-                               "toplevel source directory.")
-        projname = kw['twisted_subproject']
-        projdir = os.path.join('twisted', projname)
-
-        kw['packages'] = getPackages(projdir, parent='twisted')
-        kw['version'] = getVersion(projname)
-
-        plugin = "twisted/plugins/twisted_" + projname + ".py"
-        if os.path.exists(plugin):
-            kw.setdefault('py_modules', []).append(
-                plugin.replace("/", ".")[:-3])
-
-        kw['data_files'] = getDataFiles(projdir, parent='twisted')
-
-        del kw['twisted_subproject']
-    else:
-        if 'plugins' in kw:
-            py_modules = []
-            for plg in kw['plugins']:
-                py_modules.append("twisted.plugins." + plg)
-            kw.setdefault('py_modules', []).extend(py_modules)
-            del kw['plugins']
+    if 'plugins' in kw:
+        py_modules = []
+        for plg in kw['plugins']:
+            py_modules.append("twisted.plugins." + plg)
+        kw.setdefault('py_modules', []).extend(py_modules)
+        del kw['plugins']
 
     if 'cmdclass' not in kw:
         kw['cmdclass'] = {
@@ -105,27 +165,21 @@ def get_setup_args(**kw):
     return kw
 
 
-def getVersion(proj, base="twisted"):
+def getVersion(base):
     """
-    Extract the version number for a given project.
-
-    @param proj: the name of the project. Examples are "core",
-    "conch", "words", "mail".
+    Extract the version number.
 
     @rtype: str
     @returns: The version number of the project, as a string like
     "2.0.0".
     """
-    if proj == 'core':
-        vfile = os.path.join(base, '_version.py')
-    else:
-        vfile = os.path.join(base, proj, '_version.py')
+    vfile = os.path.join(base, '_version.py')
     ns = {'__name__': 'Nothing to see here'}
     execfile(vfile, ns)
     return ns['version'].base()
 
 
-# Names that are exluded from globbing results:
+# Names that are excluded from globbing results:
 EXCLUDE_NAMES = ["{arch}", "CVS", ".cvsignore", "_darcs",
                  "RCS", "SCCS", ".svn"]
 EXCLUDE_PATTERNS = ["*.py[cdo]", "*.s[ol]", ".#*", "*~", "*.py"]
@@ -208,6 +262,38 @@ def getDataFiles(dname, ignore=None, parent=None):
     return result
 
 
+def getExtensions():
+    """
+    Get the C extensions used for Twisted.
+    """
+    extensions = [
+        ConditionalExtension(
+            "twisted.test.raiser",
+            ["twisted/test/raiser.c"],
+            condition=lambda _: _isCPython),
+
+        ConditionalExtension(
+            "twisted.internet.iocpreactor.iocpsupport",
+            ["twisted/internet/iocpreactor/iocpsupport/iocpsupport.c",
+             "twisted/internet/iocpreactor/iocpsupport/winsock_pointers.c"],
+            libraries=["ws2_32"],
+            condition=lambda _: _isCPython and sys.platform == "win32"),
+
+        ConditionalExtension(
+            "twisted.python._sendmsg",
+            sources=["twisted/python/_sendmsg.c"],
+            condition=lambda _: sys.platform != "win32"),
+
+        ConditionalExtension(
+            "twisted.runner.portmap",
+            ["twisted/runner/portmap.c"],
+            condition=lambda builder: builder._check_header("rpc/rpc.h")),
+    ]
+
+    return extensions
+
+
+
 def getPackages(dname, pkgname=None, results=None, ignore=None, parent=None):
     """
     Get all packages which are under dname. This is necessary for
@@ -238,12 +324,11 @@ def getPackages(dname, pkgname=None, results=None, ignore=None, parent=None):
     return res
 
 
-def getScripts(projname, basedir=''):
+def getScripts(basedir=''):
     """
-    Returns a list of scripts for a Twisted subproject; this works in
-    any of an SVN checkout, a project-specific tarball.
+    Returns a list of scripts for Twisted.
     """
-    scriptdir = os.path.join(basedir, 'bin', projname)
+    scriptdir = os.path.join(basedir, 'bin')
     if not os.path.isdir(scriptdir):
         # Probably a project-specific tarball, in which case only this
         # project's bins are included in 'bin'
@@ -261,26 +346,27 @@ def getScripts(projname, basedir=''):
 ## Helpers and distutil tweaks
 
 class build_scripts_twisted(build_scripts.build_scripts):
-    """Renames scripts so they end with '.py' on Windows."""
-
+    """
+    Renames scripts so they end with '.py' on Windows.
+    """
     def run(self):
         build_scripts.build_scripts.run(self)
         if not os.name == "nt":
             return
         for f in os.listdir(self.build_dir):
-            fpath=os.path.join(self.build_dir, f)
+            fpath = os.path.join(self.build_dir, f)
             if not fpath.endswith(".py"):
-                try:
-                    os.unlink(fpath + ".py")
-                except EnvironmentError, e:
-                    if e.args[1]=='No such file or directory':
-                        pass
-                os.rename(fpath, fpath + ".py")
+                pypath = fpath + ".py"
+                if os.path.exists(pypath):
+                    os.unlink(pypath)
+                os.rename(fpath, pypath)
 
 
 
 class install_data_twisted(install_data.install_data):
-    """I make sure data files are installed in the package directory."""
+    """
+    I make sure data files are installed in the package directory.
+    """
     def finalize_options(self):
         self.set_undefined_options('install',
             ('install_lib', 'install_dir')
@@ -307,8 +393,20 @@ class build_ext_twisted(build_ext.build_ext):
             self.define_macros = [("WIN32", 1)]
         else:
             self.define_macros = []
+
+        # On Solaris 10, we need to define the _XOPEN_SOURCE and
+        # _XOPEN_SOURCE_EXTENDED macros to build in order to gain access to
+        # the msg_control, msg_controllen, and msg_flags members in
+        # sendmsg.c. (according to
+        # http://stackoverflow.com/questions/1034587).  See the documentation
+        # of X/Open CAE in the standards(5) man page of Solaris.
+        if sys.platform.startswith('sunos'):
+            self.define_macros.append(('_XOPEN_SOURCE', 1))
+            self.define_macros.append(('_XOPEN_SOURCE_EXTENDED', 1))
+
         self.extensions = [x for x in self.conditionalExtensions
                            if x.condition(self)]
+
         for ext in self.extensions:
             ext.define_macros.extend(self.define_macros)
 
@@ -358,11 +456,7 @@ def _checkCPython(sys=sys, platform=platform):
     """
     Checks if this implementation is CPython.
 
-    On recent versions of Python, will use C{platform.python_implementation}.
-    On 2.5, it will try to extract the implementation from sys.subversion. On
-    older versions (currently the only supported older version is 2.4), checks
-    if C{__pypy__} is in C{sys.modules}, since PyPy is the implementation we
-    really care about. If it isn't, assumes CPython.
+    This uses C{platform.python_implementation}.
 
     This takes C{sys} and C{platform} kwargs that by default use the real
     modules. You shouldn't care about these -- they are for testing purposes
@@ -371,31 +465,7 @@ def _checkCPython(sys=sys, platform=platform):
     @return: C{False} if the implementation is definitely not CPython, C{True}
         otherwise.
     """
-    try:
-        return platform.python_implementation() == "CPython"
-    except AttributeError:
-        # For 2.5:
-        try:
-            implementation, _, _ = sys.subversion
-            return implementation == "CPython"
-        except AttributeError:
-            pass
-
-        # Are we on Pypy?
-        if "__pypy__" in sys.modules:
-            return False
-
-        # No? Well, then we're *probably* on CPython.
-        return True
+    return platform.python_implementation() == "CPython"
 
 
 _isCPython = _checkCPython()
-
-
-def _hasEpoll(builder):
-    """
-    Checks if the header for building epoll (C{sys/epoll.h}) is available.
-
-    @return: C{True} if the header is available, C{False} otherwise.
-    """
-    return builder._check_header("sys/epoll.h")
