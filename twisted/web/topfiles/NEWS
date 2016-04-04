@@ -1,6 +1,299 @@
 Ticket numbers in this file can be looked up by visiting
 http://twistedmatrix.com/trac/ticket/<number>
 
+Twisted Web 15.5.0 (2015-11-28)
+===============================
+
+Features
+--------
+ - twisted.web.http.Request.addCookie now supports the httpOnly
+   attribute which when set on cookies prevents the browser exposing
+   it through channels other than HTTP and HTTPS requests (i.e. they
+   will not be accessible through JavaScript). (#5911)
+ - twisted.web.client.downloadPage is now ported to Python 3. (#6197)
+ - twisted.web.client.Agent is now ported to Python 3. (#7407)
+ - twisted.web.tap (ran when calling `twistd web`) has now been ported
+   to Python 3. Not all features are enabled -- CGI, WSGI, and
+   distributed web serving will be enabled in their respective tickets
+   as they are ported. (#8008)
+
+Bugfixes
+--------
+ - twisted.web.client.URI now supports IPv6 addresses. Previously this
+   would mistake the colons used as IPv6 address group separators as
+   the start of a port specification. (#7650)
+ - twisted.web.util's failure template has been moved inline to work
+   around Python 3 distribution issues. (#8047)
+ - twisted.web.http.Request on Python 3 now handles multipart/form-
+   data requests correctly. (#8052)
+
+Other
+-----
+ - #8016, #8070
+
+
+Twisted Web 15.4.0 (2015-09-04)
+===============================
+
+Features
+--------
+ - twisted.web.proxy is now ported to Python 3. (#7939)
+ - twisted.web.guard is now ported to Python 3. (#7974)
+
+Bugfixes
+--------
+ - twisted.web.http.Request.setResponseCode now only allows bytes
+   messages. (#7981)
+ - twisted.web.server.Request.processingFailed will now correctly
+   write out the traceback on Python 3. (#7996)
+
+
+Twisted Web 15.3.0 (2015-08-04)
+===============================
+
+Features
+--------
+ - twisted.web.xmlrpc is now ported to Python 3. (#7795)
+ - twisted.web.template and twisted.web.util are now ported to Python
+   3. (#7811)
+ - twisted.web.error is now ported to Python 3. (#7845)
+
+Deprecations and Removals
+-------------------------
+ - twisted.web.html is now deprecated in favor of
+   twisted.web.template. (#4948)
+
+Other
+-----
+ - #7895, #7942, #7949, #7952, #7975
+
+
+Twisted Web 15.2.1 (2015-05-23)
+===============================
+
+No significant changes have been made for this release.
+
+
+Twisted Web 15.2.0 (2015-05-18)
+===============================
+
+Features
+--------
+ - twisted.web.static is now ported to Python 3. (#6177)
+ - twisted.web.server.Site accepts requestFactory as constructor
+   argument. (#7016)
+
+Deprecations and Removals
+-------------------------
+ - twisted.web.util had some HTML generation functions deprecated
+   since 12.1 that have now been removed. (#7828)
+
+Other
+-----
+ - #6927, #7797, #7802, #7846
+
+
+Twisted Web 15.1.0 (2015-04-02)
+===============================
+
+Features
+--------
+ - twisted.web.static.File allows defining a custom resource for
+   rendering forbidden pages. (#6951)
+
+Other
+-----
+ - #7000, #7485, #7750, #7762
+
+
+Twisted Web 15.0.0 (2015-01-24)
+===============================
+
+Features
+--------
+ - twisted.web.client.Agent.usingEndpointFactory allows creating an
+   Agent that connects in non-standard ways, e.g. via a proxy or a
+   UNIX socket. (#6634)
+ - The Deferred returned by twisted.web.client.readBody can now be
+   cancelled. (#6686)
+
+Deprecations and Removals
+-------------------------
+ - twisted.web.iweb.IRequest.getClient is now deprecated.  Its
+   implementation in Twisted, twisted.web.http.Request.getClient, is
+   also deprecated and will no longer attempt to resolve the client IP
+   address to a hostname. (#2252)
+
+Other
+-----
+ - #7247, #7302, #7680, #7689
+
+
+Twisted Web 14.0.2 (2014-09-18)
+===============================
+
+No significant changes have been made for this release.
+
+
+Twisted Web 14.0.1 (2014-09-17)
+===============================
+
+Bugfixes
+--------
+ - BrowserLikePolicyForHTTPS would always ignore the specified
+   trustRoot and use the system trust root instead, which has been
+   rectified. (#7647)
+
+
+Twisted Web 14.0.0 (2014-05-08)
+===============================
+
+Features
+--------
+ - twisted.web.http.proxiedLogFormatter can now be used with
+   twisted.web.http.HTTPFactory (and subclasses) to record X
+   -Forwarded-For values to the access log when the HTTP server is
+   deployed behind a reverse proxy. (#1468)
+ - twisted.web.client.Agent now uses
+   twisted.internet.ssl.CertificateOptions for SSL/TLS and benefits
+   from its continuous improvements. (#6893)
+
+Bugfixes
+--------
+ - twisted.web.client.Agent now correctly manage flow-control on
+   pooled connections, and therefore requests will no longer hang
+   sometimes when deliverBody is not called synchronously within the
+   callback on Request. (#6751)
+ - twisted.web.client.Agent now verifies that the provided server
+   certificate in a TLS connection is trusted by the platform. (#7042)
+ - When requesting an HTTPS URL with twisted.web.client.Agent, the
+   hostname of the presented certificate will be checked against the
+   requested hostname; mismatches will now result in an error rather
+   than a man-in-the-middle opportunity for attackers.  This may break
+   existing code that incorrectly depended on insecure behavior, but
+   such code was erroneous and should be updated.  (#4888)
+
+Other
+-----
+ - #5004, #6881, #6956
+
+
+Twisted Web 13.2.0 (2013-10-29)
+===============================
+
+Features
+--------
+ - IAgent has been added to twisted.web.iweb to explicitly define the
+   interface implemented by the various "Agent" classes in
+   twisted.web.client. (#6702)
+
+Bugfixes
+--------
+ - twisted.web.client.Response.deliverBody now calls connectionLost on
+   the body protocol for responses with no body (such as 204, 304, and
+   HEAD requests). (#5476)
+ - twisted.web.static.loadMimeTypes now uses all available system MIME
+   types. (#5717)
+
+Deprecations and Removals
+-------------------------
+ - Two attributes of twisted.web.iweb.IRequest, headers and
+   received_headers, are now deprecated. (#6704)
+
+Other
+-----
+ - #5387, #6119, #6121, #6695, #6701, #6734
+
+
+Twisted Web 13.1.0 (2013-06-23)
+===============================
+
+Features
+--------
+ - The deferred returned by twisted.web.client.Agent.request can now
+   be cancelled. (#4330)
+ - twisted.web.client.BrowserLikeRedirectAgent, a new redirect agent,
+   treats HTTP 301 and 302 like HTTP 303 on non-HEAD/GET requests,
+   changing the method to GET before proceeding. (#5434)
+ - The new attribute twisted.web.iweb.IResponse.request is a reference
+   to a provider of the new twisted.web.iweb.IClientRequest interface
+   which, among other things, provides a way to access the request's
+   absolute URI. It is now also possible to inspect redirect history
+   with twisted.web.iweb.IResponse.previousResponse. (#5435)
+ - twisted.web.client.RedirectAgent now supports relative URI
+   references in the Location HTTP header. (#5462)
+ - twisted.web.client now provides readBody to collect the body of a
+   response from Agent into a string. (#6251)
+
+Bugfixes
+--------
+ - twisted.web.xmlrpc.QueryProtocol now generates valid Authorization
+   headers for long user names and passwords. (#2980)
+
+Other
+-----
+ - #6122, #6153, #6342, #6381, #6391, #6503
+
+
+Twisted Web 13.0.0 (2013-03-19)
+===============================
+
+Bugfixes
+--------
+ - twisted.web.template now properly quotes attribute values,
+   including Tag instances serialized within attribute values. (#6275)
+
+Other
+-----
+ - #6167, #6297, #6326
+
+
+Twisted Web 12.3.0 (2012-12-20)
+===============================
+
+Features
+--------
+ - twisted.web.server.Site now supports an encoders argument to encode
+   request content, twisted.web.server.GzipEncoderFactory being the
+   first one provided. (#104)
+
+Bugfixes
+--------
+ - twisted.web.http.HTTPChannel.headerReceived now catches the error
+   if the Content-Length header is not an integer and return a 400 Bad
+   Request response. (#6029)
+ - twisted.web.http.HTTPChannel now drops the connection and issues a
+   400 error upon receipt of a chunk-encoding encoded request with a
+   bad chunk-length field. (#6030)
+
+Improved Documentation
+----------------------
+ - twisted.web.iweb.IRequest now documents its `content` attribute and
+   a new "web in 60 seconds" howto demonstrates its use. (#6181)
+
+Other
+-----
+ - #5882, #5883, #5887, #5920, #6031, #6077, #6078, #6079, #6080,
+   #6110, #6113, #6196, #6205
+
+
+Twisted Web 12.2.0 (2012-08-26)
+===============================
+
+Deprecations and Removals
+-------------------------
+ - twisted.web.static.FileTransfer, deprecated since 9.0, is removed
+   now. Use a subclass of StaticProducer instead. (#5651)
+ - ErrorPage, NoResource and ForbiddenResource in twisted.web.error
+   were deprecated since 9.0 and are removed now. (#5659)
+ - twisted.web.google, deprecated since Twisted 11.1, is removed now.
+   (#5768)
+
+Other
+-----
+ - #5665
+
+
 Twisted Web 12.1.0 (2012-06-02)
 ===============================
 
@@ -348,7 +641,7 @@ Fixes
    XMLRPC support in all supported versions of Python, and errors during error
    serialization will no longer hang a twisted.web XMLRPC response (#2446)
  - request.content should now always be seeked to the beginning when
-   request.process is called, so application code should never need to seek 
+   request.process is called, so application code should never need to seek
    back manually (#3585)
  - Fetching a child of static.File with a double-slash in the URL (such as
    "example//foo.html") should now return a 404 instead of a traceback and

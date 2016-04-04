@@ -88,7 +88,7 @@ else:
 from errno import errorcode
 
 # Twisted Imports
-from twisted.internet import base, address, fdesc
+from twisted.internet import base, address, defer, fdesc
 from twisted.internet.task import deferLater
 from twisted.python import log, failure, reflect
 from twisted.python.util import untilConcludes

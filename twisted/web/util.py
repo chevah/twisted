@@ -6,51 +6,62 @@
 An assortment of web server-related utilities.
 """
 
-__all__ = [
-    "redirectTo", "Redirect", "ChildRedirector", "ParentRedirect",
-    "DeferredResource", "htmlIndent", "FailureElement", "formatFailure"]
+from __future__ import division, absolute_import
 
-from cStringIO import StringIO
 import linecache
-import string
-import types
 
-from twisted.python.filepath import FilePath
+from twisted.python import urlpath
+from twisted.python.compat import _PY3, unicode, nativeString, escape
 from twisted.python.reflect import fullyQualifiedName
-from twisted.python.deprecate import deprecatedModuleAttribute
-from twisted.python.versions import Version
-from twisted.python.modules import getModule
 
-from twisted.web import html, resource
-from twisted.web.template import (
-    TagLoader, XMLFile, Element, renderer, flattenString)
+from twisted.web import resource
+
+from twisted.web.template import TagLoader, XMLString, Element, renderer
+from twisted.web.template import flattenString
+
+
+
+def _PRE(text):
+    """
+    Wraps <pre> tags around some text and HTML-escape it.
+
+    This is here since once twisted.web.html was deprecated it was hard to
+    migrate the html.PRE from current code to twisted.web.template.
+
+    For new code consider using twisted.web.template.
+
+    @return: Escaped text wrapped in <pre> tags.
+    @rtype: C{str}
+    """
+    return '<pre>%s</pre>' % (escape(text),)
+
 
 
 def redirectTo(URL, request):
     """
     Generate a redirect to the given location.
 
-    @param URL: A C{str} giving the location to which to redirect.
-    @type URL: C{str}
+    @param URL: A L{bytes} giving the location to which to redirect.
+    @type URL: L{bytes}
 
     @param request: The request object to use to generate the redirect.
     @type request: L{IRequest<twisted.web.iweb.IRequest>} provider
 
-    @raise TypeError: If the type of C{URL} a C{unicode} instead of C{str}.
+    @raise TypeError: If the type of C{URL} a L{unicode} instead of L{bytes}.
 
-    @return: A C{str} containing HTML which tries to convince the client agent
+    @return: A C{bytes} containing HTML which tries to convince the client agent
         to visit the new location even if it doesn't respect the I{FOUND}
         response code.  This is intended to be returned from a render method,
         eg::
 
             def render_GET(self, request):
-                return redirectTo("http://example.com/", request)
+                return redirectTo(b"http://example.com/", request)
     """
     if isinstance(URL, unicode) :
         raise TypeError("Unicode object not allowed as URL")
-    request.setHeader("content-type", "text/html; charset=utf-8")
+    request.setHeader(b"Content-Type", b"text/html; charset=utf-8")
     request.redirect(URL)
-    return """
+    content =  """
 <html>
     <head>
         <meta http-equiv=\"refresh\" content=\"0;URL=%(url)s\">
@@ -59,11 +70,14 @@ def redirectTo(URL, request):
     <a href=\"%(url)s\">click here</a>
     </body>
 </html>
-""" % {'url': URL}
+""" % {'url': nativeString(URL)}
+    if _PY3:
+        content = content.encode("utf8")
+    return content
+
 
 class Redirect(resource.Resource):
-
-    isLeaf = 1
+    isLeaf = True
 
     def __init__(self, url):
         resource.Resource.__init__(self)
@@ -74,6 +88,7 @@ class Redirect(resource.Resource):
 
     def getChild(self, name, request):
         return self
+
 
 class ChildRedirector(Redirect):
     isLeaf = 0
@@ -92,8 +107,6 @@ class ChildRedirector(Redirect):
         newUrl += name
         return ChildRedirector(newUrl)
 
-
-from twisted.python import urlpath
 
 class ParentRedirect(resource.Resource):
     """
@@ -133,77 +146,6 @@ class DeferredResource(resource.Resource):
     def _ebChild(self, reason, request):
         request.processingFailed(reason)
         return reason
-
-
-stylesheet = ""
-
-def htmlrepr(x):
-    return htmlReprTypes.get(type(x), htmlUnknown)(x)
-
-def saferepr(x):
-    try:
-        rx = repr(x)
-    except:
-        rx = "<repr failed! %s instance at %s>" % (x.__class__, id(x))
-    return rx
-
-def htmlUnknown(x):
-    return '<code>'+html.escape(saferepr(x))+'</code>'
-
-def htmlDict(d):
-    io = StringIO()
-    w = io.write
-    w('<div class="dict"><span class="heading">Dictionary instance @ %s</span>' % hex(id(d)))
-    w('<table class="dict">')
-    for k, v in d.items():
-
-        if k == '__builtins__':
-            v = 'builtin dictionary'
-        w('<tr><td class="dictKey">%s</td><td class="dictValue">%s</td></tr>' % (htmlrepr(k), htmlrepr(v)))
-    w('</table></div>')
-    return io.getvalue()
-
-def htmlList(l):
-    io = StringIO()
-    w = io.write
-    w('<div class="list"><span class="heading">List instance @ %s</span>' % hex(id(l)))
-    for i in l:
-        w('<div class="listItem">%s</div>' % htmlrepr(i))
-    w('</div>')
-    return io.getvalue()
-
-def htmlInst(i):
-    if hasattr(i, "__html__"):
-        s = i.__html__()
-    else:
-        s = html.escape(saferepr(i))
-    return '''<div class="instance"><span class="instanceName">%s instance @ %s</span>
-              <span class="instanceRepr">%s</span></div>
-              ''' % (i.__class__, hex(id(i)), s)
-
-def htmlString(s):
-    return html.escape(saferepr(s))
-
-def htmlFunc(f):
-    return ('<div class="function">' +
-            html.escape("function %s in file %s at line %s" %
-                        (f.__name__, f.func_code.co_filename,
-                         f.func_code.co_firstlineno))+
-            '</div>')
-
-htmlReprTypes = {types.DictType: htmlDict,
-                 types.ListType: htmlList,
-                 types.InstanceType: htmlInst,
-                 types.StringType: htmlString,
-                 types.FunctionType: htmlFunc}
-
-
-
-def htmlIndent(snippetLine):
-    ret = string.replace(string.replace(html.escape(string.rstrip(snippetLine)),
-                                  '  ', '&nbsp;'),
-                   '\t', '&nbsp; &nbsp; &nbsp; &nbsp; ')
-    return ret
 
 
 
@@ -369,7 +311,80 @@ class FailureElement(Element):
 
     @since: 12.1
     """
-    loader = XMLFile(getModule(__name__).filePath.sibling("failure.xhtml"))
+    loader = XMLString("""
+<div xmlns:t="http://twistedmatrix.com/ns/twisted.web.template/0.1">
+  <style type="text/css">
+    div.error {
+      color: red;
+      font-family: Verdana, Arial, helvetica, sans-serif;
+      font-weight: bold;
+    }
+
+    div {
+      font-family: Verdana, Arial, helvetica, sans-serif;
+    }
+
+    div.stackTrace {
+    }
+
+    div.frame {
+      padding: 1em;
+      background: white;
+      border-bottom: thin black dashed;
+    }
+
+    div.frame:first-child {
+      padding: 1em;
+      background: white;
+      border-top: thin black dashed;
+      border-bottom: thin black dashed;
+    }
+
+    div.location {
+    }
+
+    span.function {
+      font-weight: bold;
+      font-family: "Courier New", courier, monospace;
+    }
+
+    div.snippet {
+      margin-bottom: 0.5em;
+      margin-left: 1em;
+      background: #FFFFDD;
+    }
+
+    div.snippetHighlightLine {
+      color: red;
+    }
+
+    span.code {
+      font-family: "Courier New", courier, monospace;
+    }
+  </style>
+
+  <div class="error">
+    <span t:render="type" />: <span t:render="value" />
+  </div>
+  <div class="stackTrace" t:render="traceback">
+    <div class="frame" t:render="frames">
+      <div class="location">
+        <span t:render="filename" />:<span t:render="lineNumber" /> in
+        <span class="function" t:render="function" />
+      </div>
+      <div class="snippet" t:render="source">
+        <div t:render="sourceLines">
+          <span class="lineno" t:render="lineNumber" />
+          <code class="code" t:render="sourceLine" />
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="error">
+    <span t:render="type" />: <span t:render="value" />
+  </div>
+</div>
+""")
 
     def __init__(self, failure, loader=None):
         Element.__init__(self, loader)
@@ -389,7 +404,7 @@ class FailureElement(Element):
         """
         Render the exception value as a child of C{tag}.
         """
-        return tag(str(self.failure.value))
+        return tag(unicode(self.failure.value).encode('utf8'))
 
 
     @renderer
@@ -411,23 +426,19 @@ def formatFailure(myFailure):
 
     @type myFailure: L{Failure<twisted.python.failure.Failure>}
 
-    @rtype: C{str}
+    @rtype: C{bytes}
     @return: A string containing the HTML representation of the given failure.
     """
     result = []
     flattenString(None, FailureElement(myFailure)).addBoth(result.append)
-    if isinstance(result[0], str):
+    if isinstance(result[0], bytes):
         # Ensure the result string is all ASCII, for compatibility with the
         # default encoding expected by browsers.
         return result[0].decode('utf-8').encode('ascii', 'xmlcharrefreplace')
     result[0].raiseException()
 
 
-_twelveOne = Version("Twisted", 12, 1, 0)
 
-for name in ["htmlrepr", "saferepr", "htmlUnknown", "htmlString", "htmlList",
-             "htmlDict", "htmlInst", "htmlFunc", "htmlIndent", "htmlReprTypes",
-             "stylesheet"]:
-    deprecatedModuleAttribute(
-        _twelveOne, "See twisted.web.template.", __name__, name)
-del name
+__all__ = [
+    "redirectTo", "Redirect", "ChildRedirector", "ParentRedirect",
+    "DeferredResource", "FailureElement", "formatFailure"]
