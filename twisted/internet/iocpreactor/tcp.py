@@ -10,10 +10,11 @@ import socket, operator, errno, struct
 from zope.interface import implements, classImplements
 
 from twisted.internet import interfaces, error, address, main, defer
-from twisted.internet.abstract import _LogOwner, isIPAddress, isIPv6Address
+from twisted.internet.protocol import Protocol
+from twisted.internet.abstract import _LogOwner, isIPv6Address
 from twisted.internet.tcp import _SocketCloser, Connector as TCPConnector
 from twisted.internet.tcp import _AbortingMixin, _BaseBaseClient, _BaseTCPClient
-from twisted.python import log, failure, reflect, util
+from twisted.python import log, failure, reflect
 
 from twisted.internet.iocpreactor import iocpsupport as _iocp, abstract
 from twisted.internet.iocpreactor.interfaces import IReadWriteHandle
@@ -77,7 +78,7 @@ class Connection(abstract.FileHandle, _SocketCloser, _AbortingMixin):
 
     def _closeWriteConnection(self):
         try:
-            getattr(self.socket, self._socketShutdownMethod)(1)
+            self.socket.shutdown(1)
         except socket.error:
             pass
         p = interfaces.IHalfCloseableProtocol(self.protocol, None)
@@ -289,8 +290,19 @@ class Client(_BaseBaseClient, _BaseTCPClient, Connection):
             self.connected = True
             logPrefix = self._getLogPrefix(self.protocol)
             self.logstr = logPrefix + ",client"
-            self.protocol.makeConnection(self)
-            self.startReading()
+            if self.protocol is None:
+                # Factory.buildProtocol is allowed to return None.  In that
+                # case, make up a protocol to satisfy the rest of the
+                # implementation; connectionLost is going to be called on
+                # something, for example.  This is easier than adding special
+                # case support for a None protocol throughout the rest of the
+                # transport implementation.
+                self.protocol = Protocol()
+                # But dispose of the connection quickly.
+                self.loseConnection()
+            else:
+                self.protocol.makeConnection(self)
+                self.startReading()
 
 
     def doConnect(self):

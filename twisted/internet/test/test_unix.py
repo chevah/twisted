@@ -5,62 +5,63 @@
 Tests for implementations of L{IReactorUNIX}.
 """
 
+from __future__ import division, absolute_import
+
 from stat import S_IMODE
-from os import stat, close
+from os import stat, close, urandom
 from tempfile import mktemp
 from socket import AF_INET, SOCK_STREAM, socket
 from pprint import pformat
+from hashlib import md5
 
 try:
     from socket import AF_UNIX
 except ImportError:
     AF_UNIX = None
 
-from zope.interface import implements
-from zope.interface.verify import verifyObject
+from zope.interface import implementer
 
-from twisted.python.log import addObserver, removeObserver, err
-from twisted.python.failure import Failure
-from twisted.python.hashlib import md5
-from twisted.python.runtime import platform
-from twisted.internet.interfaces import IConnector, IFileDescriptorReceiver
-from twisted.internet.error import ConnectionClosed, FileDescriptorOverrun
-from twisted.internet.address import UNIXAddress
-from twisted.internet.endpoints import UNIXServerEndpoint, UNIXClientEndpoint
-from twisted.internet.defer import Deferred, fail
-from twisted.internet.task import LoopingCall
 from twisted.internet import interfaces
-from twisted.internet.protocol import (
-    ServerFactory, ClientFactory, DatagramProtocol)
-from twisted.internet.test.reactormixins import ReactorBuilder, EndpointCreator
+from twisted.internet.address import UNIXAddress
+from twisted.internet.defer import Deferred, fail
+from twisted.internet.endpoints import UNIXServerEndpoint, UNIXClientEndpoint
+from twisted.internet.error import ConnectionClosed, FileDescriptorOverrun
+from twisted.internet.interfaces import IFileDescriptorReceiver, IReactorUNIX
+from twisted.internet.protocol import DatagramProtocol
+from twisted.internet.protocol import ServerFactory, ClientFactory
+from twisted.internet.task import LoopingCall
+from twisted.internet.test.connectionmixins import EndpointCreator
+from twisted.internet.test.reactormixins import ReactorBuilder
 from twisted.internet.test.test_core import ObjectModelIntegrationMixin
 from twisted.internet.test.test_tcp import StreamTransportTestsMixin
-from twisted.internet.test.reactormixins import (
-    ConnectableProtocol, runProtocolsWithReactor)
+from twisted.internet.test.connectionmixins import ConnectableProtocol
 from twisted.internet.test.connectionmixins import ConnectionTestsMixin
+from twisted.internet.test.connectionmixins import StreamClientTestsMixin
+from twisted.internet.test.connectionmixins import runProtocolsWithReactor
+from twisted.python.compat import nativeString, _PY3, iteritems
+from twisted.python.failure import Failure
+from twisted.python.log import addObserver, removeObserver, err
+from twisted.python.runtime import platform
+from twisted.python.reflect import requireModule
 
-try:
-    from twisted.python import sendmsg
-except ImportError:
+if requireModule("twisted.python.sendmsg") is not None:
+    sendmsgSkip = None
+else:
     sendmsgSkip = (
         "sendmsg extension unavailable, extended UNIX features disabled")
-else:
-    sendmsgSkip = None
+
 
 
 class UNIXFamilyMixin:
     """
     Test-helper defining mixin for things related to AF_UNIX sockets.
     """
-    if AF_UNIX is None:
-        skip = "Platform does not support AF_UNIX sockets"
-
     def _modeTest(self, methodName, path, factory):
         """
         Assert that the mode of the created unix socket is set to the mode
         specified to the reactor method.
         """
-        mode = 0600
+        mode = 0o600
         reactor = self.buildReactor()
         unixPort = getattr(reactor, methodName)(path, factory, mode=mode)
         unixPort.stopListening()
@@ -71,10 +72,7 @@ def _abstractPath(case):
     """
     Return a new, unique abstract namespace path to be listened on.
     """
-    # Use the test cases's mktemp to get something unique, but also squash it
-    # down to make sure it fits in the unix socket path limit (something around
-    # 110 bytes).
-    return md5(case.mktemp()).hexdigest()
+    return md5(urandom(100)).hexdigest()
 
 
 
@@ -82,6 +80,8 @@ class UNIXCreator(EndpointCreator):
     """
     Create UNIX socket end points.
     """
+    requiredInterfaces = (interfaces.IReactorUNIX,)
+
     def server(self, reactor):
         """
         Construct a UNIX server endpoint.
@@ -138,6 +138,7 @@ class SendFileDescriptor(ConnectableProtocol):
 
 
 
+@implementer(IFileDescriptorReceiver)
 class ReceiveFileDescriptor(ConnectableProtocol):
     """
     L{ReceiveFileDescriptor} provides an API for waiting for file descriptors to
@@ -150,7 +151,6 @@ class ReceiveFileDescriptor(ConnectableProtocol):
         received, or with a failure if the connection is lost with no descriptor
         arriving.
     """
-    implements(IFileDescriptorReceiver)
 
     reason = None
     waiting = None
@@ -208,15 +208,9 @@ class UNIXTestsBuilder(UNIXFamilyMixin, ReactorBuilder, ConnectionTestsMixin):
     """
     Builder defining tests relating to L{IReactorUNIX}.
     """
-    endpoints = UNIXCreator()
+    requiredInterfaces = (IReactorUNIX,)
 
-    def test_interface(self):
-        """
-        L{IReactorUNIX.connectUNIX} returns an object providing L{IConnector}.
-        """
-        reactor = self.buildReactor()
-        connector = reactor.connectUNIX(self.mktemp(), ClientFactory())
-        self.assertTrue(verifyObject(IConnector, connector))
+    endpoints = UNIXCreator()
 
 
     def test_mode(self):
@@ -251,8 +245,7 @@ class UNIXTestsBuilder(UNIXFamilyMixin, ReactorBuilder, ConnectionTestsMixin):
         path = _abstractPath(self)
         reactor = self.buildReactor()
         connector = reactor.connectUNIX('\0' + path, ClientFactory())
-        self.assertEqual(
-            connector.getDestination(), UNIXAddress('\0' + path))
+        self.assertEqual(connector.getDestination(), UNIXAddress('\0' + path))
     if not platform.isLinux():
         test_connectToLinuxAbstractNamespace.skip = (
             'Abstract namespace UNIX sockets only supported on Linux.')
@@ -288,7 +281,7 @@ class UNIXTestsBuilder(UNIXFamilyMixin, ReactorBuilder, ConnectionTestsMixin):
 
         s = socket()
         s.bind(('', 0))
-        server = SendFileDescriptor(s.fileno(), "junk")
+        server = SendFileDescriptor(s.fileno(), b"junk")
 
         client = ReceiveFileDescriptor()
         d = client.waitForDescriptor()
@@ -331,7 +324,7 @@ class UNIXTestsBuilder(UNIXFamilyMixin, ReactorBuilder, ConnectionTestsMixin):
                 self.transport.registerProducer(self, True)
                 def sender():
                     self.transport.sendFileDescriptor(self.socket.fileno())
-                    self.transport.write("x")
+                    self.transport.write(b"x")
                 self.task = LoopingCall(sender)
                 self.task.clock = self.transport.reactor
                 self.task.start(0).addErrback(err, "Send loop failure")
@@ -375,14 +368,15 @@ class UNIXTestsBuilder(UNIXFamilyMixin, ReactorBuilder, ConnectionTestsMixin):
         server = SendFileDescriptor(cargo.fileno(), None)
 
         client = ReceiveFileDescriptor()
-        d = self.assertFailure(
-            client.waitForDescriptor(), ConnectionClosed)
-        d.addErrback(
-            err, "Sending file descriptor encountered unexpected problem")
+        result = []
+        d = client.waitForDescriptor()
+        d.addBoth(result.append)
         d.addBoth(lambda ignored: server.transport.loseConnection())
 
         runProtocolsWithReactor(self, server, client, self.endpoints)
 
+        self.assertIsInstance(result[0], Failure)
+        result[0].trap(ConnectionClosed)
         self.assertIsInstance(server.reason.value, FileDescriptorOverrun)
     if sendmsgSkip is not None:
         test_fileDescriptorOverrun.skip = sendmsgSkip
@@ -412,7 +406,7 @@ class UNIXTestsBuilder(UNIXFamilyMixin, ReactorBuilder, ConnectionTestsMixin):
                 self.peerAddress = self.transport.getPeer()
                 SendFileDescriptor.connectionMade(self)
 
-        server = RecordEndpointAddresses(probeClient.fileno(), "junk")
+        server = RecordEndpointAddresses(probeClient.fileno(), b"junk")
         client = ConnectableProtocol()
 
         runProtocolsWithReactor(self, server, client, self.endpoints)
@@ -421,10 +415,11 @@ class UNIXTestsBuilder(UNIXFamilyMixin, ReactorBuilder, ConnectionTestsMixin):
         probeClient.close()
 
         # A non-blocking recv will return "" if the connection is closed, as
-        # desired.  If the connection has not been closed, because the duplicate
-        # file descriptor is still open, it will fail with EAGAIN instead.
+        # desired.  If the connection has not been closed, because the
+        # duplicate file descriptor is still open, it will fail with EAGAIN
+        # instead.
         probeServer.setblocking(False)
-        self.assertEqual("", probeServer.recv(1024))
+        self.assertEqual(b"", probeServer.recv(1024))
 
         # This is a surprising circumstance, so it should be logged.
         format = (
@@ -441,7 +436,7 @@ class UNIXTestsBuilder(UNIXFamilyMixin, ReactorBuilder, ConnectionTestsMixin):
                              format=format)
 
         for logEvent in events:
-            for k, v in expectedEvent.iteritems():
+            for k, v in iteritems(expectedEvent):
                 if v != logEvent.get(k):
                     break
             else:
@@ -461,8 +456,8 @@ class UNIXTestsBuilder(UNIXFamilyMixin, ReactorBuilder, ConnectionTestsMixin):
         L{IUNIXTransport.sendFileDescriptor} sends file descriptors before
         L{ITransport.write} sends normal bytes.
         """
+        @implementer(IFileDescriptorReceiver)
         class RecordEvents(ConnectableProtocol):
-            implements(IFileDescriptorReceiver)
 
             def connectionMade(self):
                 ConnectableProtocol.connectionMade(self)
@@ -476,12 +471,16 @@ class UNIXTestsBuilder(UNIXFamilyMixin, ReactorBuilder, ConnectionTestsMixin):
                 self.events.extend(data)
 
         cargo = socket()
-        server = SendFileDescriptor(cargo.fileno(), "junk")
+        server = SendFileDescriptor(cargo.fileno(), b"junk")
         client = RecordEvents()
 
         runProtocolsWithReactor(self, server, client, self.endpoints)
 
-        self.assertEqual([int, "j", "u", "n", "k"], client.events)
+        self.assertEqual(int, client.events[0])
+        if _PY3:
+            self.assertEqual(b"junk", bytes(client.events[1:]))
+        else:
+            self.assertEqual(b"junk", b"".join(client.events[1:]))
     if sendmsgSkip is not None:
         test_descriptorDeliveredBeforeBytes.skip = sendmsgSkip
 
@@ -491,6 +490,8 @@ class UNIXDatagramTestsBuilder(UNIXFamilyMixin, ReactorBuilder):
     """
     Builder defining tests relating to L{IReactorUNIXDatagram}.
     """
+    requiredInterfaces = (interfaces.IReactorUNIXDatagram,)
+
     # There's no corresponding test_connectMode because the mode parameter to
     # connectUNIXDatagram has been completely ignored since that API was first
     # introduced.
@@ -523,7 +524,7 @@ class UNIXPortTestsBuilder(ReactorBuilder, ObjectModelIntegrationMixin,
     """
     Tests for L{IReactorUNIX.listenUnix}
     """
-    requiredInterfaces = [interfaces.IReactorUNIX]
+    requiredInterfaces = (interfaces.IReactorUNIX,)
 
     def getListeningPort(self, reactor, factory):
         """
@@ -538,17 +539,69 @@ class UNIXPortTestsBuilder(ReactorBuilder, ObjectModelIntegrationMixin,
         """
         Get the message expected to be logged when a UNIX port starts listening.
         """
-        return "%s starting on %r" % (factory, port.getHost().name)
+        return "%s starting on %r" % (factory,
+                                      nativeString(port.getHost().name))
 
 
     def getExpectedConnectionLostLogMsg(self, port):
         """
         Get the expected connection lost message for a UNIX port
         """
-        return "(UNIX Port %s Closed)" % (repr(port.port),)
+        return "(UNIX Port %s Closed)" % (nativeString(port.getHost().name),)
 
 
 
 globals().update(UNIXTestsBuilder.makeTestCaseClasses())
 globals().update(UNIXDatagramTestsBuilder.makeTestCaseClasses())
 globals().update(UNIXPortTestsBuilder.makeTestCaseClasses())
+
+
+
+class UnixClientTestsBuilder(ReactorBuilder, StreamClientTestsMixin):
+    """
+    Define tests for L{IReactorUNIX.connectUNIX}.
+    """
+    requiredInterfaces = (IReactorUNIX,)
+
+    _path = None
+
+    @property
+    def path(self):
+        """
+        Return a path usable by C{connectUNIX} and C{listenUNIX}.
+
+        @return: A path instance, built with C{_abstractPath}.
+        """
+        if self._path is None:
+            self._path = _abstractPath(self)
+        return self._path
+
+
+    def listen(self, reactor, factory):
+        """
+        Start an UNIX server with the given C{factory}.
+
+        @param reactor: The reactor to create the UNIX port in.
+
+        @param factory: The server factory.
+
+        @return: A UNIX port instance.
+        """
+        return reactor.listenUNIX(self.path, factory)
+
+
+    def connect(self, reactor, factory):
+        """
+        Start an UNIX client with the given C{factory}.
+
+        @param reactor: The reactor to create the connection in.
+
+        @param factory: The client factory.
+
+        @return: A UNIX connector instance.
+        """
+        return reactor.connectUNIX(self.path, factory)
+
+
+
+globals().update(UnixClientTestsBuilder.makeTestCaseClasses())

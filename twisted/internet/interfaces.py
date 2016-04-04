@@ -7,9 +7,9 @@ Interface documentation.
 Maintainer: Itamar Shtull-Trauring
 """
 
+from __future__ import division, absolute_import
+
 from zope.interface import Interface, Attribute
-from twisted.python.deprecate import deprecatedModuleAttribute
-from twisted.python.versions import Version
 
 
 class IAddress(Interface):
@@ -54,187 +54,571 @@ class IConnector(Interface):
         """
 
 
-class IResolverSimple(Interface):
 
+class IResolverSimple(Interface):
     def getHostByName(name, timeout = (1, 3, 11, 45)):
         """
         Resolve the domain name C{name} into an IP address.
 
         @type name: C{str}
-        @type timeout: C{tuple}
+        @param name: DNS name to resolve.
+
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
+
         @rtype: L{twisted.internet.defer.Deferred}
         @return: The callback of the Deferred that is returned will be
-        passed a string that represents the IP address of the specified
-        name, or the errback will be called if the lookup times out.  If
-        multiple types of address records are associated with the name,
-        A6 records will be returned in preference to AAAA records, which
-        will be returned in preference to A records.  If there are multiple
-        records of the type to be returned, one will be selected at random.
+            passed a string that represents the IP address of the
+            specified name, or the errback will be called if the
+            lookup times out.  If multiple types of address records
+            are associated with the name, A6 records will be returned
+            in preference to AAAA records, which will be returned in
+            preference to A records.  If there are multiple records of
+            the type to be returned, one will be selected at random.
 
-        @raise twisted.internet.defer.TimeoutError: Raised (asynchronously)
-        if the name cannot be resolved within the specified timeout period.
+        @raise twisted.internet.defer.TimeoutError: Raised
+            (asynchronously) if the name cannot be resolved within the
+            specified timeout period.
         """
+
+
 
 class IResolver(IResolverSimple):
-    def lookupRecord(name, cls, type, timeout = 10):
+    def query(query, timeout=None):
         """
-        Lookup the records associated with the given name
-        that are of the given type and in the given class.
-        """
+        Dispatch C{query} to the method which can handle its type.
 
-    def query(query, timeout = 10):
-        """
-        Interpret and dispatch a query object to the appropriate
-        lookup* method.
-        """
+        @type query: L{twisted.names.dns.Query}
+        @param query: The DNS query being issued, to which a response is to be
+            generated.
 
-    def lookupAddress(name, timeout = 10):
-        """
-        Lookup the A records associated with C{name}.
-        """
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
 
-    def lookupAddress6(name, timeout = 10):
-        """
-        Lookup all the A6 records associated with C{name}.
-        """
-
-    def lookupIPV6Address(name, timeout = 10):
-        """
-        Lookup all the AAAA records associated with C{name}.
-        """
-
-    def lookupMailExchange(name, timeout = 10):
-        """
-        Lookup the MX records associated with C{name}.
-        """
-
-    def lookupNameservers(name, timeout = 10):
-        """
-        Lookup the the NS records associated with C{name}.
-        """
-
-    def lookupCanonicalName(name, timeout = 10):
-        """
-        Lookup the CNAME records associated with C{name}.
-        """
-
-    def lookupMailBox(name, timeout = 10):
-        """
-        Lookup the MB records associated with C{name}.
-        """
-
-    def lookupMailGroup(name, timeout = 10):
-        """
-        Lookup the MG records associated with C{name}.
-        """
-
-    def lookupMailRename(name, timeout = 10):
-        """
-        Lookup the MR records associated with C{name}.
-        """
-
-    def lookupPointer(name, timeout = 10):
-        """
-        Lookup the PTR records associated with C{name}.
-        """
-
-    def lookupAuthority(name, timeout = 10):
-        """
-        Lookup the SOA records associated with C{name}.
-        """
-
-    def lookupNull(name, timeout = 10):
-        """
-        Lookup the NULL records associated with C{name}.
-        """
-
-    def lookupWellKnownServices(name, timeout = 10):
-        """
-        Lookup the WKS records associated with C{name}.
-        """
-
-    def lookupHostInfo(name, timeout = 10):
-        """
-        Lookup the HINFO records associated with C{name}.
-        """
-
-    def lookupMailboxInfo(name, timeout = 10):
-        """
-        Lookup the MINFO records associated with C{name}.
-        """
-
-    def lookupText(name, timeout = 10):
-        """
-        Lookup the TXT records associated with C{name}.
-        """
-
-    def lookupResponsibility(name, timeout = 10):
-        """
-        Lookup the RP records associated with C{name}.
-        """
-
-    def lookupAFSDatabase(name, timeout = 10):
-        """
-        Lookup the AFSDB records associated with C{name}.
-        """
-
-    def lookupService(name, timeout = 10):
-        """
-        Lookup the SRV records associated with C{name}.
-        """
-
-    def lookupAllRecords(name, timeout = 10):
-        """
-        Lookup all records associated with C{name}.
-        """
-
-    def lookupZone(name, timeout = 10):
-        """
-        Perform a zone transfer for the given C{name}.
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.  The first element of the
+            tuple gives answers.  The second element of the tuple gives
+            authorities.  The third element of the tuple gives additional
+            information.  The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
         """
 
 
-
-class IReactorArbitrary(Interface):
-    """
-    This interface is redundant with L{IReactorFDSet} and is deprecated.
-    """
-    deprecatedModuleAttribute(
-        Version("Twisted", 10, 1, 0),
-        "See IReactorFDSet.",
-        __name__,
-        "IReactorArbitrary")
-
-
-    def listenWith(portType, *args, **kw):
+    def lookupAddress(name, timeout=None):
         """
-        Start an instance of the given C{portType} listening.
+        Perform an A record lookup.
 
-        @type portType: type which implements L{IListeningPort}
+        @type name: C{str}
+        @param name: DNS name to resolve.
 
-        @param portType: The object given by C{portType(*args, **kw)} will be
-                         started listening.
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
 
-        @return: an object which provides L{IListeningPort}.
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.  The first element of the
+            tuple gives answers.  The second element of the tuple gives
+            authorities.  The third element of the tuple gives additional
+            information.  The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
         """
 
 
-    def connectWith(connectorType, *args, **kw):
+    def lookupAddress6(name, timeout=None):
         """
-        Start an instance of the given C{connectorType} connecting.
+        Perform an A6 record lookup.
 
-        @type connectorType: type which implements L{IConnector}
+        @type name: C{str}
+        @param name: DNS name to resolve.
 
-        @param connectorType: The object given by C{connectorType(*args, **kw)}
-                              will be started connecting.
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
 
-        @return:  An object which provides L{IConnector}.
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.  The first element of the
+            tuple gives answers.  The second element of the tuple gives
+            authorities.  The third element of the tuple gives additional
+            information.  The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
         """
 
-# Alias for IReactorArbitrary so that internal Twisted code can continue to
-# provide the interface without emitting a deprecation warning.  This can be
-# removed when IReactorArbitrary is removed.
-_IReactorArbitrary = IReactorArbitrary
+
+    def lookupIPV6Address(name, timeout=None):
+        """
+        Perform an AAAA record lookup.
+
+        @type name: C{str}
+        @param name: DNS name to resolve.
+
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
+
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.  The first element of the
+            tuple gives answers.  The second element of the tuple gives
+            authorities.  The third element of the tuple gives additional
+            information.  The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
+        """
+
+
+    def lookupMailExchange(name, timeout=None):
+        """
+        Perform an MX record lookup.
+
+        @type name: C{str}
+        @param name: DNS name to resolve.
+
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
+
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.  The first element of the
+            tuple gives answers.  The second element of the tuple gives
+            authorities.  The third element of the tuple gives additional
+            information.  The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
+        """
+
+
+    def lookupNameservers(name, timeout=None):
+        """
+        Perform an NS record lookup.
+
+        @type name: C{str}
+        @param name: DNS name to resolve.
+
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
+
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.  The first element of the
+            tuple gives answers.  The second element of the tuple gives
+            authorities.  The third element of the tuple gives additional
+            information.  The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
+        """
+
+
+    def lookupCanonicalName(name, timeout=None):
+        """
+        Perform a CNAME record lookup.
+
+        @type name: C{str}
+        @param name: DNS name to resolve.
+
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
+
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.  The first element of the
+            tuple gives answers.  The second element of the tuple gives
+            authorities.  The third element of the tuple gives additional
+            information.  The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
+        """
+
+
+    def lookupMailBox(name, timeout=None):
+        """
+        Perform an MB record lookup.
+
+        @type name: C{str}
+        @param name: DNS name to resolve.
+
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
+
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.  The first element of the
+            tuple gives answers.  The second element of the tuple gives
+            authorities.  The third element of the tuple gives additional
+            information.  The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
+        """
+
+
+    def lookupMailGroup(name, timeout=None):
+        """
+        Perform an MG record lookup.
+
+        @type name: C{str}
+        @param name: DNS name to resolve.
+
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
+
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.  The first element of the
+            tuple gives answers.  The second element of the tuple gives
+            authorities.  The third element of the tuple gives additional
+            information.  The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
+        """
+
+
+    def lookupMailRename(name, timeout=None):
+        """
+        Perform an MR record lookup.
+
+        @type name: C{str}
+        @param name: DNS name to resolve.
+
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
+
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.  The first element of the
+            tuple gives answers.  The second element of the tuple gives
+            authorities.  The third element of the tuple gives additional
+            information.  The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
+        """
+
+
+    def lookupPointer(name, timeout=None):
+        """
+        Perform a PTR record lookup.
+
+        @type name: C{str}
+        @param name: DNS name to resolve.
+
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
+
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.  The first element of the
+            tuple gives answers.  The second element of the tuple gives
+            authorities.  The third element of the tuple gives additional
+            information.  The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
+        """
+
+
+    def lookupAuthority(name, timeout=None):
+        """
+        Perform an SOA record lookup.
+
+        @type name: C{str}
+        @param name: DNS name to resolve.
+
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
+
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.  The first element of the
+            tuple gives answers.  The second element of the tuple gives
+            authorities.  The third element of the tuple gives additional
+            information.  The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
+        """
+
+
+    def lookupNull(name, timeout=None):
+        """
+        Perform a NULL record lookup.
+
+        @type name: C{str}
+        @param name: DNS name to resolve.
+
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
+
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.  The first element of the
+            tuple gives answers.  The second element of the tuple gives
+            authorities.  The third element of the tuple gives additional
+            information.  The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
+        """
+
+
+    def lookupWellKnownServices(name, timeout=None):
+        """
+        Perform a WKS record lookup.
+
+        @type name: C{str}
+        @param name: DNS name to resolve.
+
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
+
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.  The first element of the
+            tuple gives answers.  The second element of the tuple gives
+            authorities.  The third element of the tuple gives additional
+            information.  The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
+        """
+
+
+    def lookupHostInfo(name, timeout=None):
+        """
+        Perform a HINFO record lookup.
+
+        @type name: C{str}
+        @param name: DNS name to resolve.
+
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
+
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.  The first element of the
+            tuple gives answers.  The second element of the tuple gives
+            authorities.  The third element of the tuple gives additional
+            information.  The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
+        """
+
+
+    def lookupMailboxInfo(name, timeout=None):
+        """
+        Perform an MINFO record lookup.
+
+        @type name: C{str}
+        @param name: DNS name to resolve.
+
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
+
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.  The first element of the
+            tuple gives answers.  The second element of the tuple gives
+            authorities.  The third element of the tuple gives additional
+            information.  The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
+        """
+
+
+    def lookupText(name, timeout=None):
+        """
+        Perform a TXT record lookup.
+
+        @type name: C{str}
+        @param name: DNS name to resolve.
+
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
+
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.  The first element of the
+            tuple gives answers.  The second element of the tuple gives
+            authorities.  The third element of the tuple gives additional
+            information.  The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
+        """
+
+
+    def lookupResponsibility(name, timeout=None):
+        """
+        Perform an RP record lookup.
+
+        @type name: C{str}
+        @param name: DNS name to resolve.
+
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
+
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.  The first element of the
+            tuple gives answers.  The second element of the tuple gives
+            authorities.  The third element of the tuple gives additional
+            information.  The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
+        """
+
+
+    def lookupAFSDatabase(name, timeout=None):
+        """
+        Perform an AFSDB record lookup.
+
+        @type name: C{str}
+        @param name: DNS name to resolve.
+
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
+
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.  The first element of the
+            tuple gives answers.  The second element of the tuple gives
+            authorities.  The third element of the tuple gives additional
+            information.  The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
+        """
+
+
+    def lookupService(name, timeout=None):
+        """
+        Perform an SRV record lookup.
+
+        @type name: C{str}
+        @param name: DNS name to resolve.
+
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
+
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.  The first element of the
+            tuple gives answers.  The second element of the tuple gives
+            authorities.  The third element of the tuple gives additional
+            information.  The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
+        """
+
+
+    def lookupAllRecords(name, timeout=None):
+        """
+        Perform an ALL_RECORD lookup.
+
+        @type name: C{str}
+        @param name: DNS name to resolve.
+
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
+
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.  The first element of the
+            tuple gives answers.  The second element of the tuple gives
+            authorities.  The third element of the tuple gives additional
+            information.  The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
+        """
+
+
+    def lookupSenderPolicy(name, timeout= 10):
+        """
+        Perform a SPF record lookup.
+
+        @type name: C{str}
+        @param name: DNS name to resolve.
+
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
+
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.  The first element of the
+            tuple gives answers.  The second element of the tuple gives
+            authorities.  The third element of the tuple gives additional
+            information.  The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
+        """
+
+
+    def lookupNamingAuthorityPointer(name, timeout=None):
+        """
+        Perform a NAPTR record lookup.
+
+        @type name: C{str}
+        @param name: DNS name to resolve.
+
+        @type timeout: Sequence of C{int}
+        @param timeout: Number of seconds after which to reissue the query.
+            When the last timeout expires, the query is considered failed.
+
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.  The first element of the
+            tuple gives answers.  The second element of the tuple gives
+            authorities.  The third element of the tuple gives additional
+            information.  The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
+        """
+
+
+    def lookupZone(name, timeout=None):
+        """
+        Perform an AXFR record lookup.
+
+        NB This is quite different from other DNS requests. See
+        U{http://cr.yp.to/djbdns/axfr-notes.html} for more
+        information.
+
+        NB Unlike other C{lookup*} methods, the timeout here is not a
+        list of ints, it is a single int.
+
+        @type name: C{str}
+        @param name: DNS name to resolve.
+
+        @type timeout: C{int}
+        @param timeout: When this timeout expires, the query is
+            considered failed.
+
+        @rtype: L{Deferred}
+        @return: A L{Deferred} which fires with a three-tuple of lists of
+            L{twisted.names.dns.RRHeader} instances.
+            The first element of the tuple gives answers.
+            The second and third elements are always empty.
+            The L{Deferred} may instead fail with one of the
+            exceptions defined in L{twisted.names.error} or with
+            C{NotImplementedError}.
+        """
 
 
 
@@ -266,7 +650,9 @@ class IReactorTCP(Interface):
         """
         Connect a TCP client.
 
-        @param host: a host name
+        @param host: A hostname or an IPv4 or IPv6 address literal.
+
+        @type host: L{bytes}
 
         @param port: a port number
 
@@ -351,7 +737,7 @@ class IReactorUNIX(Interface):
         """
 
 
-    def listenUNIX(address, factory, backlog=50, mode=0666, wantPID=0):
+    def listenUNIX(address, factory, backlog=50, mode=0o666, wantPID=0):
         """
         Listen on a UNIX socket.
 
@@ -379,7 +765,7 @@ class IReactorUNIXDatagram(Interface):
     Datagram UNIX socket methods.
     """
 
-    def connectUNIXDatagram(address, protocol, maxPacketSize=8192, mode=0666, bindAddress=None):
+    def connectUNIXDatagram(address, protocol, maxPacketSize=8192, mode=0o666, bindAddress=None):
         """
         Connect a client protocol to a datagram UNIX socket.
 
@@ -400,7 +786,7 @@ class IReactorUNIXDatagram(Interface):
         """
 
 
-    def listenUNIXDatagram(address, protocol, maxPacketSize=8192, mode=0666):
+    def listenUNIXDatagram(address, protocol, maxPacketSize=8192, mode=0o666):
         """
         Listen on a datagram UNIX socket.
 
@@ -460,7 +846,21 @@ class IReactorUDP(Interface):
 
     def listenUDP(port, protocol, interface='', maxPacketSize=8192):
         """
-        Connects a given DatagramProtocol to the given numeric UDP port.
+        Connects a given L{DatagramProtocol} to the given numeric UDP port.
+
+        @param port: A port number on which to listen.
+        @type port: C{int}
+
+        @param protocol: A L{DatagramProtocol} instance which will be
+            connected to the given C{port}.
+        @type protocol: L{DatagramProtocol}
+
+        @param interface: The local IPv4 or IPv6 address to which to bind;
+            defaults to '', ie all IPv4 addresses.
+        @type interface: C{str}
+
+        @param maxPacketSize: The maximum packet size to accept.
+        @type maxPacketSize: C{int}
 
         @return: object which provides L{IListeningPort}.
         """
@@ -472,7 +872,7 @@ class IReactorMulticast(Interface):
     UDP socket methods that support multicast.
 
     IMPORTANT: This is an experimental new interface. It may change
-    without backwards compatability. Suggestions are welcome.
+    without backwards compatibility. Suggestions are welcome.
     """
 
     def listenMulticast(port, protocol, interface='', maxPacketSize=8192,
@@ -526,15 +926,15 @@ class IReactorSocket(Interface):
 
     Some plans for extending this interface exist.  See:
 
-        - U{http://twistedmatrix.com/trac/ticket/5570}: established connections
-        - U{http://twistedmatrix.com/trac/ticket/5573}: AF_UNIX ports
-        - U{http://twistedmatrix.com/trac/ticket/5574}: SOCK_DGRAM sockets
+        - U{http://twistedmatrix.com/trac/ticket/5573}: AF_UNIX SOCK_STREAM ports
+        - U{http://twistedmatrix.com/trac/ticket/6594}: AF_UNIX SOCK_DGRAM ports
     """
 
     def adoptStreamPort(fileDescriptor, addressFamily, factory):
         """
         Add an existing listening I{SOCK_STREAM} socket to the reactor to
         monitor for new connections to accept and handle.
+
         @param fileDescriptor: A file descriptor associated with a socket which
             is already bound to an address and marked as listening.  The socket
             must be set non-blocking.  Any additional flags (for example,
@@ -551,7 +951,76 @@ class IReactorSocket(Interface):
 
         @return: An object providing L{IListeningPort}.
 
+        @raise twisted.internet.error.UnsupportedAddressFamily: If the
+            given address family is not supported by this reactor, or
+            not supported with the given socket type.
+
+        @raise twisted.internet.error.UnsupportedSocketType: If the
+            given socket type is not supported by this reactor, or not
+            supported with the given socket type.
+        """
+
+
+    def adoptStreamConnection(fileDescriptor, addressFamily, factory):
+        """
+        Add an existing connected I{SOCK_STREAM} socket to the reactor to
+        monitor for data.
+
+        Note that the given factory won't have its C{startFactory} and
+        C{stopFactory} methods called, as there is no sensible time to call
+        them in this situation.
+
+        @param fileDescriptor: A file descriptor associated with a socket which
+            is already connected.  The socket must be set non-blocking.  Any
+            additional flags (for example, close-on-exec) must also be set by
+            application code.  Application code is responsible for closing the
+            file descriptor, which may be done as soon as
+            C{adoptStreamConnection} returns.
+        @type fileDescriptor: C{int}
+
+        @param addressFamily: The address family (or I{domain}) of the socket.
+            For example, L{socket.AF_INET6}.
+
+        @param factory: A L{ServerFactory} instance to use to create a new
+            protocol to handle the connection via this socket.
+
         @raise UnsupportedAddressFamily: If the given address family is not
+            supported by this reactor, or not supported with the given socket
+            type.
+
+        @raise UnsupportedSocketType: If the given socket type is not supported
+            by this reactor, or not supported with the given socket type.
+        """
+
+
+    def adoptDatagramPort(fileDescriptor, addressFamily, protocol,
+                          maxPacketSize=8192):
+        """
+        Add an existing listening I{SOCK_DGRAM} socket to the reactor to
+        monitor for read and write readiness.
+
+        @param fileDescriptor: A file descriptor associated with a socket which
+            is already bound to an address and marked as listening.  The socket
+            must be set non-blocking.  Any additional flags (for example,
+            close-on-exec) must also be set by application code.  Application
+            code is responsible for closing the file descriptor, which may be
+            done as soon as C{adoptDatagramPort} returns.
+        @type fileDescriptor: C{int}
+
+        @param addressFamily: The address family (or I{domain}) of the socket.
+            For example, L{socket.AF_INET6}.
+        @type addressFamily: C{int}
+
+        @param protocol: A L{DatagramProtocol} instance to connect to
+            a UDP transport.
+        @type protocol: L{DatagramProtocol}
+
+        @param maxPacketSize: The maximum packet size to accept.
+        @type maxPacketSize: C{int}
+
+        @return: An object providing L{IListeningPort}.
+
+        @raise L{UnsupportedAddressFamily}: If the given address family is not
             supported by this reactor, or not supported with the given socket
             type.
 
@@ -747,7 +1216,49 @@ class IDelayedCall(Interface):
                  called or cancelled.
         """
 
-class IReactorThreads(Interface):
+
+
+class IReactorFromThreads(Interface):
+    """
+    This interface is the set of thread-safe methods which may be invoked on
+    the reactor from other threads.
+
+    @since: 15.4
+    """
+
+    def callFromThread(callable, *args, **kw):
+        """
+        Cause a function to be executed by the reactor thread.
+
+        Use this method when you want to run a function in the reactor's thread
+        from another thread.  Calling L{callFromThread} should wake up the main
+        thread (where L{reactor.run() <IReactorCore.run>} is executing) and run
+        the given callable in that thread.
+
+        If you're writing a multi-threaded application the C{callable} may need
+        to be thread safe, but this method doesn't require it as such.  If you
+        want to call a function in the next mainloop iteration, but you're in
+        the same thread, use L{callLater} with a delay of 0.
+        """
+
+
+class IReactorInThreads(Interface):
+    """
+    This interface contains the methods exposed by a reactor which will let you
+    run functions in another thread.
+
+    @since: 15.4
+    """
+
+    def callInThread(callable, *args, **kwargs):
+        """
+        Run the given callable object in a separate thread, with the given
+        arguments and keyword arguments.
+        """
+
+
+
+class IReactorThreads(IReactorFromThreads, IReactorInThreads):
     """
     Dispatch methods to be run in threads.
 
@@ -756,40 +1267,19 @@ class IReactorThreads(Interface):
 
     def getThreadPool():
         """
-        Return the threadpool used by L{callInThread}.  Create it first if
-        necessary.
+        Return the threadpool used by L{IReactorInThreads.callInThread}.
+        Create it first if necessary.
 
         @rtype: L{twisted.python.threadpool.ThreadPool}
-        """
-
-
-    def callInThread(callable, *args, **kwargs):
-        """
-        Run the callable object in a separate thread.
-        """
-
-
-    def callFromThread(callable, *args, **kw):
-        """
-        Cause a function to be executed by the reactor thread.
-
-        Use this method when you want to run a function in the reactor's thread
-        from another thread.  Calling L{callFromThread} should wake up the main
-        thread (where L{reactor.run()<reactor.run>} is executing) and run the
-        given callable in that thread.
-
-        If you're writing a multi-threaded application the C{callable} may need
-        to be thread safe, but this method doesn't require it as such. If you
-        want to call a function in the next mainloop iteration, but you're in
-        the same thread, use L{callLater} with a delay of 0.
         """
 
 
     def suggestThreadPoolSize(size):
         """
         Suggest the size of the internal threadpool used to dispatch functions
-        passed to L{callInThread}.
+        passed to L{IReactorInThreads.callInThread}.
         """
+
 
 
 class IReactorCore(Interface):
@@ -1250,25 +1740,6 @@ class IConsumer(Interface):
 
 
 
-deprecatedModuleAttribute(Version("Twisted", 11, 1, 0),
-    "Please use IConsumer (and IConsumer.unregisterProducer) instead.",
-    __name__, "IFinishableConsumer")
-
-class IFinishableConsumer(IConsumer):
-    """
-    A Consumer for producers that finish.  This interface offers no advantages
-    over L{IConsumer} and is deprecated.  Please use
-    L{IConsumer.unregisterProducer} instead of L{IFinishableConsumer.finish}.
-    """
-
-    def finish():
-        """
-        The producer has finished producing.  This method is deprecated.
-        Please use L{IConsumer.unregisterProducer} instead.
-        """
-
-
-
 class IProducer(Interface):
     """
     A producer produces data for a consumer.
@@ -1680,6 +2151,62 @@ class IUNIXTransport(ITransport):
 
 
 
+class IOpenSSLServerConnectionCreator(Interface):
+    """
+    A provider of L{IOpenSSLServerConnectionCreator} can create
+    L{OpenSSL.SSL.Connection} objects for TLS servers.
+
+    @see: L{twisted.internet.ssl}
+
+    @note: Creating OpenSSL connection objects is subtle, error-prone, and
+        security-critical.  Before implementing this interface yourself,
+        consider using L{twisted.internet.ssl.CertificateOptions} as your
+        C{contextFactory}.  (For historical reasons, that class does not
+        actually I{implement} this interface; nevertheless it is usable in all
+        Twisted APIs which require a provider of this interface.)
+    """
+
+    def serverConnectionForTLS(tlsProtocol):
+        """
+        Create a connection for the given server protocol.
+
+        @param tlsProtocol: the protocol server making the request.
+        @type tlsProtocol: L{twisted.protocols.tls.TLSMemoryBIOProtocol}.
+
+        @return: an OpenSSL connection object configured appropriately for the
+            given Twisted protocol.
+        @rtype: L{OpenSSL.SSL.Connection}
+        """
+
+
+
+class IOpenSSLClientConnectionCreator(Interface):
+    """
+    A provider of L{IOpenSSLClientConnectionCreator} can create
+    L{OpenSSL.SSL.Connection} objects for TLS clients.
+
+    @see: L{twisted.internet.ssl}
+
+    @note: Creating OpenSSL connection objects is subtle, error-prone, and
+        security-critical.  Before implementing this interface yourself,
+        consider using L{twisted.internet.ssl.optionsForClientTLS} as your
+        C{contextFactory}.
+    """
+
+    def clientConnectionForTLS(tlsProtocol):
+        """
+        Create a connection for the given client protocol.
+
+        @param tlsProtocol: the client protocol making the request.
+        @type tlsProtocol: L{twisted.protocols.tls.TLSMemoryBIOProtocol}.
+
+        @return: an OpenSSL connection object configured appropriately for the
+            given Twisted protocol.
+        @rtype: L{OpenSSL.SSL.Connection}
+        """
+
+
+
 class ITLSTransport(ITCPTransport):
     """
     A TCP transport that supports switching to TLS midstream.
@@ -1691,8 +2218,20 @@ class ITLSTransport(ITCPTransport):
         """
         Initiate TLS negotiation.
 
-        @param contextFactory: A context factory (see L{ssl.py<twisted.internet.ssl>})
+        @param contextFactory: An object which creates appropriately configured
+            TLS connections.
+
+            For clients, use L{twisted.internet.ssl.optionsForClientTLS}; for
+            servers, use L{twisted.internet.ssl.CertificateOptions}.
+
+        @type contextFactory: L{IOpenSSLClientConnectionCreator} or
+            L{IOpenSSLServerConnectionCreator}, depending on whether this
+            L{ITLSTransport} is a server or not.  If the appropriate interface
+            is not provided by the value given for C{contextFactory}, it must
+            be an old-style L{twisted.internet.ssl.ContextFactory} or similar.
         """
+
+
 
 class ISSLTransport(ITCPTransport):
     """
@@ -1703,6 +2242,56 @@ class ISSLTransport(ITCPTransport):
         """
         Return an object with the peer's certificate info.
         """
+
+
+
+class INegotiated(ISSLTransport):
+    """
+    A TLS based transport that supports using ALPN/NPN to negotiate the
+    protocol to be used inside the encrypted tunnel.
+    """
+    negotiatedProtocol = Attribute(
+        """
+        The protocol selected to be spoken using ALPN/NPN. The result from ALPN
+        is preferred to the result from NPN if both were used. If the remote
+        peer does not support ALPN or NPN, or neither NPN or ALPN are available
+        on this machine, will be C{None}. Otherwise, will be the name of the
+        selected protocol as C{bytes}. Note that until the handshake has
+        completed this property may incorrectly return C{None}: wait until data
+        has been received before trusting it (see
+        https://twistedmatrix.com/trac/ticket/6024).
+        """
+    )
+
+
+
+class ICipher(Interface):
+    """
+    A TLS cipher.
+    """
+    fullName = Attribute(
+        "The fully qualified name of the cipher in L{unicode}."
+    )
+
+
+
+class IAcceptableCiphers(Interface):
+    """
+    A list of acceptable ciphers for a TLS context.
+    """
+    def selectCiphers(availableCiphers):
+        """
+        Choose which ciphers to allow to be negotiated on a TLS connection.
+
+        @param availableCiphers: A L{list} of L{ICipher} which gives the names
+            of all ciphers supported by the TLS implementation in use.
+
+        @return: A L{list} of L{ICipher} which represents the ciphers
+            which may be negotiated on the TLS connection.  The result is
+            ordered by preference with more preferred ciphers appearing
+            earlier.
+        """
+
 
 
 class IProcessTransport(ITransport):
@@ -1772,8 +2361,10 @@ class IProcessTransport(ITransport):
           - an integer, where it represents a POSIX
               signal ID.
 
-        @raise twisted.internet.error.ProcessExitedAlready: The process has
-        already exited.
+        @raise twisted.internet.error.ProcessExitedAlready: If the process has
+            already exited.
+        @raise OSError: If the C{os.kill} call fails with an errno different
+            from C{ESRCH}.
         """
 
 
@@ -1832,7 +2423,10 @@ class IUDPTransport(Interface):
 
     def getHost():
         """
-        Returns L{IPv4Address}.
+        Get this port's host address.
+
+        @return: an address describing the listening port.
+        @rtype: L{IPv4Address} or L{IPv6Address}.
         """
 
     def stopListening():
@@ -1843,6 +2437,21 @@ class IUDPTransport(Interface):
         upon completion.
         """
 
+    def setBroadcastAllowed(enabled):
+        """
+        Set whether this port may broadcast.
+
+        @param enabled: Whether the port may broadcast.
+        @type enabled: L{bool}
+        """
+
+    def getBroadcastAllowed():
+        """
+        Checks if broadcast is currently allowed on this port.
+
+        @return: Whether this port may broadcast.
+        @rtype: L{bool}
+        """
 
 
 class IUNIXDatagramTransport(Interface):
@@ -1948,7 +2557,8 @@ class IStreamClientEndpoint(Interface):
 
         @param protocolFactory: A provider of L{IProtocolFactory}
         @return: A L{Deferred} that results in an L{IProtocol} upon successful
-            connection otherwise a L{ConnectError}
+            connection otherwise a L{Failure} wrapping L{ConnectError} or
+            L{NoProtocol <twisted.internet.error.NoProtocol>}.
         """
 
 
@@ -1976,14 +2586,17 @@ class IStreamServerEndpoint(Interface):
 class IStreamServerEndpointStringParser(Interface):
     """
     An L{IStreamServerEndpointStringParser} is like an
-    L{IStreamClientEndpointStringParser}, except for L{IStreamServerEndpoint}s
-    instead of clients.  It integrates with L{endpoints.serverFromString} in
-    much the same way.
+    L{IStreamClientEndpointStringParserWithReactor}, except for
+    L{IStreamServerEndpoint}s instead of clients.  It integrates with
+    L{endpoints.serverFromString} in much the same way.
     """
 
     prefix = Attribute(
         """
-        @see: L{IStreamClientEndpointStringParser.prefix}
+        A C{str}, the description prefix to respond to.  For example, an
+        L{IStreamServerEndpointStringParser} plugin which had C{"foo"} for its
+        C{prefix} attribute would be called for endpoint descriptions like
+        C{"foo:bar:baz"} or C{"foo:"}.
         """
     )
 
@@ -1993,57 +2606,59 @@ class IStreamServerEndpointStringParser(Interface):
         Parse a stream server endpoint from a reactor and string-only arguments
         and keyword arguments.
 
-        @see: L{IStreamClientEndpointStringParser.parseStreamClient}
+        @see: L{IStreamClientEndpointStringParserWithReactor.parseStreamClient}
 
         @return: a stream server endpoint
         @rtype: L{IStreamServerEndpoint}
         """
 
 
-
-class IStreamClientEndpointStringParser(Interface):
+class IStreamClientEndpointStringParserWithReactor(Interface):
     """
-    An L{IStreamClientEndpointStringParser} is a parser which can convert
-    a set of string C{*args} and C{**kwargs} into an L{IStreamClientEndpoint}
-    provider.
+    An L{IStreamClientEndpointStringParserWithReactor} is a parser which can
+    convert a set of string C{*args} and C{**kwargs} into an
+    L{IStreamClientEndpoint} provider.
 
     This interface is really only useful in the context of the plugin system
     for L{endpoints.clientFromString}.  See the document entitled "I{The
     Twisted Plugin System}" for more details on how to write a plugin.
 
-    If you place an L{IStreamClientEndpointStringParser} plugin in the
-    C{twisted.plugins} package, that plugin's C{parseStreamClient} method will
-    be used to produce endpoints for any description string that begins with
-    the result of that L{IStreamClientEndpointStringParser}'s prefix attribute.
+    If you place an L{IStreamClientEndpointStringParserWithReactor} plugin in
+    the C{twisted.plugins} package, that plugin's C{parseStreamClient} method
+    will be used to produce endpoints for any description string that begins
+    with the result of that L{IStreamClientEndpointStringParserWithReactor}'s
+    prefix attribute.
     """
 
     prefix = Attribute(
         """
-        A C{str}, the description prefix to respond to.  For example, an
-        L{IStreamClientEndpointStringParser} plugin which had C{"foo"} for its
-        C{prefix} attribute would be called for endpoint descriptions like
-        C{"foo:bar:baz"} or C{"foo:"}.
+        L{bytes}, the description prefix to respond to.  For example, an
+        L{IStreamClientEndpointStringParserWithReactor} plugin which had
+        C{b"foo"} for its C{prefix} attribute would be called for endpoint
+        descriptions like C{b"foo:bar:baz"} or C{b"foo:"}.
         """
     )
 
 
-    def parseStreamClient(*args, **kwargs):
+    def parseStreamClient(reactor, *args, **kwargs):
         """
         This method is invoked by L{endpoints.clientFromString}, if the type of
         endpoint matches the return value from this
-        L{IStreamClientEndpointStringParser}'s C{prefix} method.
+        L{IStreamClientEndpointStringParserWithReactor}'s C{prefix} method.
 
-        @param args: The string arguments, minus the endpoint type, in the
+        @param reactor: The reactor passed to L{endpoints.clientFromString}.
+
+        @param args: The byte string arguments, minus the endpoint type, in the
             endpoint description string, parsed according to the rules
             described in L{endpoints.quoteStringArgument}.  For example, if the
-            description were C{"my-type:foo:bar:baz=qux"}, C{args} would be
-            C{('foo','bar')}
+            description were C{b"my-type:foo:bar:baz=qux"}, C{args} would be
+            C{(b'foo', b'bar')}
 
-        @param kwargs: The string arguments from the endpoint description
+        @param kwargs: The byte string arguments from the endpoint description
             passed as keyword arguments.  For example, if the description were
-            C{"my-type:foo:bar:baz=qux"}, C{kwargs} would be
-            C{dict(baz='qux')}.
+            C{b"my-type:foo:bar:baz=qux"}, C{kwargs} would be
+            C{dict(baz=b'qux')}.
 
         @return: a client endpoint
-        @rtype: L{IStreamClientEndpoint}
+        @rtype: a provider of L{IStreamClientEndpoint}
         """

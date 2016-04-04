@@ -8,6 +8,7 @@ Various asynchronous TCP/IP classes.
 End users shouldn't use this module directly - use the reactor APIs instead.
 """
 
+from __future__ import division, absolute_import
 
 # System Imports
 import types
@@ -16,8 +17,9 @@ import sys
 import operator
 import struct
 
-from zope.interface import implements
+from zope.interface import implementer
 
+from twisted.python.compat import _PY3, lazyByteSlice
 from twisted.python.runtime import platformType
 from twisted.python import versions, deprecate
 
@@ -29,21 +31,18 @@ try:
         ClientMixin as _TLSClientMixin,
         ServerMixin as _TLSServerMixin)
 except ImportError:
-    try:
-        # Try to get the socket BIO based startTLS implementation, available in
-        # all pyOpenSSL versions
-        from twisted.internet._oldtls import (
-            ConnectionMixin as _TLSConnectionMixin,
-            ClientMixin as _TLSClientMixin,
-            ServerMixin as _TLSServerMixin)
-    except ImportError:
-        # There is no version of startTLS available
-        class _TLSConnectionMixin(object):
-            TLS = False
-        class _TLSClientMixin(object):
-            pass
-        class _TLSServerMixin(object):
-            pass
+    # There is no version of startTLS available
+    class _TLSConnectionMixin(object):
+        TLS = False
+
+
+    class _TLSClientMixin(object):
+        pass
+
+
+    class _TLSServerMixin(object):
+        pass
+
 
 if platformType == 'win32':
     # no such thing as WSAEPERM or error code 10001 according to winsock.h or MSDN
@@ -89,35 +88,44 @@ else:
 from errno import errorcode
 
 # Twisted Imports
-from twisted.internet import address, base, defer, fdesc
+from twisted.internet import base, address, fdesc
 from twisted.internet.task import deferLater
 from twisted.python import log, failure, reflect
-from twisted.python.util import unsignedID, untilConcludes
+from twisted.python.util import untilConcludes
 from twisted.internet.error import CannotListenError
 from twisted.internet import abstract, main, interfaces, error
+from twisted.internet.protocol import Protocol
 
 # Not all platforms have, or support, this flag.
 _AI_NUMERICSERV = getattr(socket, "AI_NUMERICSERV", 0)
 
 
+# The type for service names passed to socket.getservbyname:
+if _PY3:
+    _portNameType = str
+else:
+    _portNameType = types.StringTypes
+
+
 
 class _SocketCloser(object):
-    _socketShutdownMethod = 'shutdown'
+    """
+    @ivar _shouldShutdown: Set to C{True} if C{shutdown} should be called
+        before calling C{close} on the underlying socket.
+    @type _shouldShutdown: C{bool}
+    """
+    _shouldShutdown = True
 
     def _closeSocket(self, orderly):
         # The call to shutdown() before close() isn't really necessary, because
         # we set FD_CLOEXEC now, which will ensure this is the only process
         # holding the FD, thus ensuring close() really will shutdown the TCP
         # socket. However, do it anyways, just to be safe.
-        try:
-            skt = self.socket
-        except AttributeError:
-            return
-
+        skt = self.socket
         try:
             if orderly:
-                if self._socketShutdownMethod is not None:
-                    getattr(skt, self._socketShutdownMethod)(2)
+                if self._shouldShutdown:
+                    skt.shutdown(2)
             else:
                 # Set SO_LINGER to 1,0 which, by convention, causes a
                 # connection reset to be sent when close is called,
@@ -161,6 +169,7 @@ class _AbortingMixin(object):
 
 
 
+@implementer(interfaces.ITCPTransport, interfaces.ISystemHandle)
 class Connection(_TLSConnectionMixin, abstract.FileDescriptor, _SocketCloser,
                  _AbortingMixin):
     """
@@ -172,7 +181,6 @@ class Connection(_TLSConnectionMixin, abstract.FileDescriptor, _SocketCloser,
     @ivar logstr: prefix used when logging events related to this connection.
     @type logstr: C{str}
     """
-    implements(interfaces.ITCPTransport, interfaces.ISystemHandle)
 
 
     def __init__(self, skt, protocol, reactor=None):
@@ -198,7 +206,7 @@ class Connection(_TLSConnectionMixin, abstract.FileDescriptor, _SocketCloser,
         """
         try:
             data = self.socket.recv(self.bufferSize)
-        except socket.error, se:
+        except socket.error as se:
             if se.args[0] == EWOULDBLOCK:
                 return
             else:
@@ -233,11 +241,11 @@ class Connection(_TLSConnectionMixin, abstract.FileDescriptor, _SocketCloser,
         """
         # Limit length of buffer to try to send, because some OSes are too
         # stupid to do so themselves (ahem windows)
-        limitedData = buffer(data, 0, self.SEND_LIMIT)
+        limitedData = lazyByteSlice(data, 0, self.SEND_LIMIT)
 
         try:
             return untilConcludes(self.socket.send, limitedData)
-        except socket.error, se:
+        except socket.error as se:
             if se.args[0] in (EWOULDBLOCK, ENOBUFS):
                 return 0
             else:
@@ -246,7 +254,7 @@ class Connection(_TLSConnectionMixin, abstract.FileDescriptor, _SocketCloser,
 
     def _closeWriteConnection(self):
         try:
-            getattr(self.socket, self._socketShutdownMethod)(1)
+            self.socket.shutdown(1)
         except socket.error:
             pass
         p = interfaces.IHalfCloseableProtocol(self.protocol, None)
@@ -436,7 +444,7 @@ class _BaseBaseClient(object):
 
     def failIfNotConnected(self, err):
         """
-        Generic method called when the attemps to connect failed. It basically
+        Generic method called when the attempts to connect failed. It basically
         cleans everything it can: call connectionFailed, stop read and write,
         delete socket related members.
         """
@@ -561,7 +569,7 @@ class BaseClient(_BaseBaseClient, _TLSClientMixin, Connection):
         # cleaned up some day, though.
         try:
             connectResult = self.socket.connect_ex(self.realAddress)
-        except socket.error, se:
+        except socket.error as se:
             connectResult = se.args[0]
         if connectResult:
             if connectResult == EISCONN:
@@ -602,8 +610,18 @@ class BaseClient(_BaseBaseClient, _TLSClientMixin, Connection):
         self.connected = 1
         logPrefix = self._getLogPrefix(self.protocol)
         self.logstr = "%s,client" % logPrefix
-        self.startReading()
-        self.protocol.makeConnection(self)
+        if self.protocol is None:
+            # Factory.buildProtocol is allowed to return None.  In that case,
+            # make up a protocol to satisfy the rest of the implementation;
+            # connectionLost is going to be called on something, for example.
+            # This is easier than adding special case support for a None
+            # protocol throughout the rest of the transport implementation.
+            self.protocol = Protocol()
+            # But dispose of the connection quickly.
+            self.loseConnection()
+        else:
+            self.startReading()
+            self.protocol.makeConnection(self)
 
 
 
@@ -696,7 +714,7 @@ class _BaseTCPClient(object):
             self._requiresResolution = True
         try:
             skt = self.createInternetSocket()
-        except socket.error, se:
+        except socket.error as se:
             err = error.ConnectBindError(se.args[0], se.args[1])
             whenDone = None
         if whenDone and bindAddress is not None:
@@ -711,7 +729,7 @@ class _BaseTCPClient(object):
                 else:
                     bindinfo = bindAddress
                 skt.bind(bindinfo)
-            except socket.error, se:
+            except socket.error as se:
                 err = error.ConnectBindError(se.args[0], se.args[1])
                 whenDone = None
         self._finishInit(whenDone, skt, err, reactor)
@@ -738,7 +756,7 @@ class _BaseTCPClient(object):
 
 
     def __repr__(self):
-        s = '<%s to %s at %x>' % (self.__class__, self.addr, unsignedID(self))
+        s = '<%s to %s at %x>' % (self.__class__, self.addr, id(self))
         return s
 
 
@@ -790,16 +808,58 @@ class Server(_TLSServerMixin, Connection):
         self.logstr = "%s,%s,%s" % (logPrefix,
                                     sessionno,
                                     self.hostname)
-        self.repstr = "<%s #%s on %s>" % (self.protocol.__class__.__name__,
-                                          self.sessionno,
-                                          self.server._realPortNumber)
+        if self.server is not None:
+            self.repstr = "<%s #%s on %s>" % (self.protocol.__class__.__name__,
+                                              self.sessionno,
+                                              self.server._realPortNumber)
         self.startReading()
         self.connected = 1
 
     def __repr__(self):
-        """A string representation of this connection.
+        """
+        A string representation of this connection.
         """
         return self.repstr
+
+
+    @classmethod
+    def _fromConnectedSocket(cls, fileDescriptor, addressFamily, factory,
+                             reactor):
+        """
+        Create a new L{Server} based on an existing connected I{SOCK_STREAM}
+        socket.
+
+        Arguments are the same as to L{Server.__init__}, except where noted.
+
+        @param fileDescriptor: An integer file descriptor associated with a
+            connected socket.  The socket must be in non-blocking mode.  Any
+            additional attributes desired, such as I{FD_CLOEXEC}, must also be
+            set already.
+
+        @param addressFamily: The address family (sometimes called I{domain})
+            of the existing socket.  For example, L{socket.AF_INET}.
+
+        @return: A new instance of C{cls} wrapping the socket given by
+            C{fileDescriptor}.
+        """
+        addressType = address.IPv4Address
+        if addressFamily == socket.AF_INET6:
+            addressType = address.IPv6Address
+        skt = socket.fromfd(fileDescriptor, addressFamily, socket.SOCK_STREAM)
+        addr = skt.getpeername()
+        protocolAddr = addressType('TCP', addr[0], addr[1])
+        localPort = skt.getsockname()[1]
+
+        protocol = factory.buildProtocol(protocolAddr)
+        if protocol is None:
+            skt.close()
+            return
+
+        self = cls(skt, protocol, addr, None, addr[1], reactor)
+        self.repstr = "<%s #%s on %s>" % (
+            self.protocol.__class__.__name__, self.sessionno, localPort)
+        protocol.makeConnection(self)
+        return self
 
 
     def getHost(self):
@@ -822,6 +882,7 @@ class Server(_TLSServerMixin, Connection):
 
 
 
+@implementer(interfaces.IListeningPort)
 class Port(base.BasePort, _SocketCloser):
     """
     A TCP server port, listening for connections.
@@ -857,8 +918,6 @@ class Port(base.BasePort, _SocketCloser):
         listen for connections (instead of a new socket being created by this
         L{Port}).
     """
-
-    implements(interfaces.IListeningPort)
 
     socketType = socket.SOCK_STREAM
 
@@ -897,7 +956,7 @@ class Port(base.BasePort, _SocketCloser):
     def _fromListeningDescriptor(cls, reactor, fd, addressFamily, factory):
         """
         Create a new L{Port} based on an existing listening I{SOCK_STREAM}
-        I{AF_INET} socket.
+        socket.
 
         Arguments are the same as to L{Port.__init__}, except where noted.
 
@@ -946,15 +1005,15 @@ class Port(base.BasePort, _SocketCloser):
                 else:
                     addr = (self.interface, self.port)
                 skt.bind(addr)
-            except socket.error, le:
-                raise CannotListenError, (self.interface, self.port, le)
+            except socket.error as le:
+                raise CannotListenError(self.interface, self.port, le)
             skt.listen(self.backlog)
         else:
             # Re-use the externally specified socket
             skt = self._preexistingSocket
             self._preexistingSocket = None
             # Avoid shutting it down at the end.
-            self._socketShutdownMethod = None
+            self._shouldShutdown = False
 
         # Make sure that if we listened on port 0, we update that to
         # reflect what the OS actually assigned us.
@@ -999,7 +1058,7 @@ class Port(base.BasePort, _SocketCloser):
                     return
                 try:
                     skt, addr = self.socket.accept()
-                except socket.error, e:
+                except socket.error as e:
                     if e.args[0] in (EWOULDBLOCK, EAGAIN):
                         self.numberAccepts = i
                         break
@@ -1122,10 +1181,10 @@ class Connector(base.BaseConnector):
     _addressType = address.IPv4Address
 
     def __init__(self, host, port, factory, timeout, bindAddress, reactor=None):
-        if isinstance(port, types.StringTypes):
+        if isinstance(port, _portNameType):
             try:
                 port = socket.getservbyname(port, 'tcp')
-            except socket.error, e:
+            except socket.error as e:
                 raise error.ServiceNameUnknownError(string="%s (%r)" % (e, port))
         self.host, self.port = host, port
         if abstract.isIPv6Address(host):
@@ -1149,5 +1208,3 @@ class Connector(base.BaseConnector):
         @see: L{twisted.internet.interfaces.IConnector.getDestination}.
         """
         return self._addressType('TCP', self.host, self.port)
-
-

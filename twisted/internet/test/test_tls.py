@@ -5,13 +5,15 @@
 Tests for implementations of L{ITLSTransport}.
 """
 
+from __future__ import division, absolute_import
+
 __metaclass__ = type
 
-import sys, operator
+from zope.interface import implementer
 
-from zope.interface import implements
-
-from twisted.internet.test.reactormixins import ReactorBuilder, EndpointCreator
+from twisted.python.compat import networkString
+from twisted.python.filepath import FilePath
+from twisted.internet.test.reactormixins import ReactorBuilder
 from twisted.internet.protocol import ServerFactory, ClientFactory, Protocol
 from twisted.internet.interfaces import (
     IReactorSSL, ITLSTransport, IStreamClientEndpoint)
@@ -20,14 +22,14 @@ from twisted.internet.endpoints import (
     SSL4ServerEndpoint, SSL4ClientEndpoint, TCP4ClientEndpoint)
 from twisted.internet.error import ConnectionClosed
 from twisted.internet.task import Cooperator
-from twisted.trial.unittest import TestCase, SkipTest
+from twisted.trial.unittest import SkipTest
 from twisted.python.runtime import platform
 
 from twisted.internet.test.test_core import ObjectModelIntegrationMixin
 from twisted.internet.test.test_tcp import (
     StreamTransportTestsMixin, AbortConnectionMixin)
-from twisted.internet.test.connectionmixins import ConnectionTestsMixin
-from twisted.internet.test.connectionmixins import BrokenContextFactory
+from twisted.internet.test.connectionmixins import (
+    EndpointCreator, ConnectionTestsMixin, BrokenContextFactory)
 
 try:
     from OpenSSL.crypto import FILETYPE_PEM
@@ -51,47 +53,18 @@ class TLSMixin:
 
 
 class ContextGeneratingMixin(object):
-    _certificateText = (
-        "-----BEGIN CERTIFICATE-----\n"
-        "MIIDBjCCAm+gAwIBAgIBATANBgkqhkiG9w0BAQQFADB7MQswCQYDVQQGEwJTRzER\n"
-        "MA8GA1UEChMITTJDcnlwdG8xFDASBgNVBAsTC00yQ3J5cHRvIENBMSQwIgYDVQQD\n"
-        "ExtNMkNyeXB0byBDZXJ0aWZpY2F0ZSBNYXN0ZXIxHTAbBgkqhkiG9w0BCQEWDm5n\n"
-        "cHNAcG9zdDEuY29tMB4XDTAwMDkxMDA5NTEzMFoXDTAyMDkxMDA5NTEzMFowUzEL\n"
-        "MAkGA1UEBhMCU0cxETAPBgNVBAoTCE0yQ3J5cHRvMRIwEAYDVQQDEwlsb2NhbGhv\n"
-        "c3QxHTAbBgkqhkiG9w0BCQEWDm5ncHNAcG9zdDEuY29tMFwwDQYJKoZIhvcNAQEB\n"
-        "BQADSwAwSAJBAKy+e3dulvXzV7zoTZWc5TzgApr8DmeQHTYC8ydfzH7EECe4R1Xh\n"
-        "5kwIzOuuFfn178FBiS84gngaNcrFi0Z5fAkCAwEAAaOCAQQwggEAMAkGA1UdEwQC\n"
-        "MAAwLAYJYIZIAYb4QgENBB8WHU9wZW5TU0wgR2VuZXJhdGVkIENlcnRpZmljYXRl\n"
-        "MB0GA1UdDgQWBBTPhIKSvnsmYsBVNWjj0m3M2z0qVTCBpQYDVR0jBIGdMIGagBT7\n"
-        "hyNp65w6kxXlxb8pUU/+7Sg4AaF/pH0wezELMAkGA1UEBhMCU0cxETAPBgNVBAoT\n"
-        "CE0yQ3J5cHRvMRQwEgYDVQQLEwtNMkNyeXB0byBDQTEkMCIGA1UEAxMbTTJDcnlw\n"
-        "dG8gQ2VydGlmaWNhdGUgTWFzdGVyMR0wGwYJKoZIhvcNAQkBFg5uZ3BzQHBvc3Qx\n"
-        "LmNvbYIBADANBgkqhkiG9w0BAQQFAAOBgQA7/CqT6PoHycTdhEStWNZde7M/2Yc6\n"
-        "BoJuVwnW8YxGO8Sn6UJ4FeffZNcYZddSDKosw8LtPOeWoK3JINjAk5jiPQ2cww++\n"
-        "7QGG/g5NDjxFZNDJP1dGiLAxPW6JXwov4v0FmdzfLOZ01jDcgQQZqEpYlgpuI5JE\n"
-        "WUQ9Ho4EzbYCOQ==\n"
-        "-----END CERTIFICATE-----\n")
-
-    _privateKeyText = (
-        "-----BEGIN RSA PRIVATE KEY-----\n"
-        "MIIBPAIBAAJBAKy+e3dulvXzV7zoTZWc5TzgApr8DmeQHTYC8ydfzH7EECe4R1Xh\n"
-        "5kwIzOuuFfn178FBiS84gngaNcrFi0Z5fAkCAwEAAQJBAIqm/bz4NA1H++Vx5Ewx\n"
-        "OcKp3w19QSaZAwlGRtsUxrP7436QjnREM3Bm8ygU11BjkPVmtrKm6AayQfCHqJoT\n"
-        "ZIECIQDW0BoMoL0HOYM/mrTLhaykYAVqgIeJsPjvkEhTFXWBuQIhAM3deFAvWNu4\n"
-        "nklUQ37XsCT2c9tmNt1LAT+slG2JOTTRAiAuXDtC/m3NYVwyHfFm+zKHRzHkClk2\n"
-        "HjubeEgjpj32AQIhAJqMGTaZVOwevTXvvHwNEH+vRWsAYU/gbx+OQB+7VOcBAiEA\n"
-        "oolb6NMg/R3enNPvS1O4UU1H8wpaF77L4yiSWlE0p4w=\n"
-        "-----END RSA PRIVATE KEY-----\n")
-
+    import twisted
+    _pem = FilePath(
+        networkString(twisted.__file__)).sibling(b"test").child(b"server.pem")
+    del twisted
 
     def getServerContext(self):
         """
         Return a new SSL context suitable for use in a test server.
         """
+        pem = self._pem.getContent()
         cert = PrivateCertificate.load(
-            self._certificateText,
-            KeyPair.load(self._privateKeyText, FILETYPE_PEM),
-            FILETYPE_PEM)
+            pem, KeyPair.load(pem, FILETYPE_PEM), FILETYPE_PEM)
         return cert.options()
 
 
@@ -100,6 +73,7 @@ class ContextGeneratingMixin(object):
 
 
 
+@implementer(IStreamClientEndpoint)
 class StartTLSClientEndpoint(object):
     """
     An endpoint which wraps another one and adds a TLS layer immediately when
@@ -110,7 +84,6 @@ class StartTLSClientEndpoint(object):
 
     @ivar contextFactory: A L{ContextFactory} to use to do TLS.
     """
-    implements(IStreamClientEndpoint)
 
     def __init__(self, wrapped, contextFactory):
         self.wrapped = wrapped
@@ -145,7 +118,7 @@ class StartTLSClientCreator(EndpointCreator, ContextGeneratingMixin):
     """
     def server(self, reactor):
         """
-        Construct an SSL server endpoint.  This should be be constructing a TCP
+        Construct an SSL server endpoint.  This should be constructing a TCP
         server endpoint which immediately calls C{startTLS} instead, but that
         is hard.
         """
@@ -258,14 +231,14 @@ class SSLClientTestsMixin(TLSMixin, ReactorBuilder, ContextGeneratingMixin,
                 self.transport.startTLS(self.factory.context)
                 # Force TLS to really get negotiated.  If nobody talks, nothing
                 # will happen.
-                self.transport.write("x")
+                self.transport.write(b"x")
 
             def dataReceived(self, data):
                 # Stuff some bytes into the socket.  This mostly has the effect
                 # of causing the next write to fail with ENOTCONN or EPIPE.
                 # With the pyOpenSSL implementation of ITLSTransport, the error
                 # is swallowed outside of the control of Twisted.
-                self.transport.write("y")
+                self.transport.write(b"y")
                 # Now close the connection, which requires a TLS close alert to
                 # be sent.
                 self.transport.loseConnection()
@@ -358,7 +331,7 @@ globals().update(TLSPortTestsBuilder().makeTestCaseClasses())
 
 
 
-class AbortSSLConnectionTest(ReactorBuilder, AbortConnectionMixin, ContextGeneratingMixin):
+class AbortSSLConnectionTests(ReactorBuilder, AbortConnectionMixin, ContextGeneratingMixin):
     """
     C{abortConnection} tests using SSL.
     """
@@ -384,49 +357,4 @@ class AbortSSLConnectionTest(ReactorBuilder, AbortConnectionMixin, ContextGenera
         if FILETYPE_PEM is None:
             raise SkipTest("OpenSSL not available.")
 
-globals().update(AbortSSLConnectionTest.makeTestCaseClasses())
-
-class OldTLSDeprecationTest(TestCase):
-    """
-    Tests for the deprecation of L{twisted.internet._oldtls}, the implementation
-    module for L{IReactorSSL} used when only an old version of pyOpenSSL is
-    available.
-    """
-    def test_warning(self):
-        """
-        The use of L{twisted.internet._oldtls} is deprecated, and emits a
-        L{DeprecationWarning}.
-        """
-        # Since _oldtls depends on OpenSSL, just skip this test if it isn't
-        # installed on the system.  Faking it would be error prone.
-        try:
-            import OpenSSL
-        except ImportError:
-            raise SkipTest("OpenSSL not available.")
-
-        # Change the apparent version of OpenSSL to one support for which is
-        # deprecated.  And have it change back again after the test.
-        self.patch(OpenSSL, '__version__', '0.5')
-
-        # If the module was already imported, the import statement below won't
-        # execute its top-level code.  Take it out of sys.modules so the import
-        # system re-evaluates it.  Arrange to put the original back afterwards.
-        # Also handle the case where it hasn't yet been imported.
-        try:
-            oldtls = sys.modules['twisted.internet._oldtls']
-        except KeyError:
-            self.addCleanup(sys.modules.pop, 'twisted.internet._oldtls')
-        else:
-            del sys.modules['twisted.internet._oldtls']
-            self.addCleanup(
-                operator.setitem, sys.modules, 'twisted.internet._oldtls',
-                oldtls)
-
-        # The actual test.
-        import twisted.internet._oldtls
-        warnings = self.flushWarnings()
-        self.assertEqual(warnings[0]['category'], DeprecationWarning)
-        self.assertEqual(
-            warnings[0]['message'],
-            "Support for pyOpenSSL 0.5 is deprecated.  "
-            "Upgrade to pyOpenSSL 0.10 or newer.")
+globals().update(AbortSSLConnectionTests.makeTestCaseClasses())

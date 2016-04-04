@@ -5,15 +5,21 @@
 Address objects for network connections.
 """
 
+from __future__ import division, absolute_import
+
 import warnings, os
 
-from zope.interface import implements
-
+from zope.interface import implementer
 from twisted.internet.interfaces import IAddress
-from twisted.python import util
+from twisted.python.filepath import _asFilesystemBytes
+from twisted.python.filepath import _coerceToFilesystemEncoding
+from twisted.python.util import FancyEqMixin
+from twisted.python.runtime import platform
+from twisted.python.compat import _PY3
 
 
-class _IPAddress(object, util.FancyEqMixin):
+@implementer(IAddress)
+class _IPAddress(FancyEqMixin, object):
     """
     An L{_IPAddress} represents the address of an IP socket endpoint, providing
     common behavior for IPv4 and IPv6.
@@ -28,8 +34,6 @@ class _IPAddress(object, util.FancyEqMixin):
     @ivar port: An integer representing the port number.
     @type port: C{int}
     """
-
-    implements(IAddress)
 
     compareAttributes = ('type', 'host', 'port')
 
@@ -86,15 +90,50 @@ class IPv6Address(_IPAddress):
 
 
 
-class UNIXAddress(object, util.FancyEqMixin):
+@implementer(IAddress)
+class _ProcessAddress(object):
+    """
+    An L{interfaces.IAddress} provider for process transports.
+    """
+
+
+
+@implementer(IAddress)
+class HostnameAddress(FancyEqMixin, object):
+    """
+    A L{HostnameAddress} represents the address of a L{HostnameEndpoint}.
+
+    @ivar hostname: A hostname byte string; for example, b"example.com".
+    @type hostname: L{bytes}
+
+    @ivar port: An integer representing the port number.
+    @type port: L{int}
+    """
+    compareAttributes = ('hostname', 'port')
+
+    def __init__(self, hostname, port):
+        self.hostname = hostname
+        self.port = port
+
+
+    def __repr__(self):
+        return '%s(%s, %d)' % (
+            self.__class__.__name__, self.hostname, self.port)
+
+
+    def __hash__(self):
+        return hash((self.hostname, self.port))
+
+
+
+@implementer(IAddress)
+class UNIXAddress(FancyEqMixin, object):
     """
     Object representing a UNIX socket endpoint.
 
     @ivar name: The filename associated with this socket.
-    @type name: C{str}
+    @type name: C{bytes}
     """
-
-    implements(IAddress)
 
     compareAttributes = ('name', )
 
@@ -105,10 +144,28 @@ class UNIXAddress(object, util.FancyEqMixin):
                     DeprecationWarning, stacklevel=2)
 
 
+    @property
+    def name(self):
+        return self._name
+
+
+    @name.setter
+    def name(self, name):
+        """
+        On UNIX, paths are always bytes. However, as paths are L{unicode} on
+        Python 3, and L{UNIXAddress} technically takes a file path, we convert
+        it to bytes to maintain compatibility with C{os.path} on Python 3.
+        """
+        if name is not None:
+            self._name = _asFilesystemBytes(name)
+        else:
+            self._name = None
+
+
     if getattr(os.path, 'samefile', None) is not None:
         def __eq__(self, other):
             """
-            overriding L{util.FancyEqMixin} to ensure the os level samefile
+            Overriding C{FancyEqMixin} to ensure the os level samefile
             check is done if the name attributes do not match.
             """
             res = super(UNIXAddress, self).__eq__(other)
@@ -117,11 +174,19 @@ class UNIXAddress(object, util.FancyEqMixin):
                     return os.path.samefile(self.name, other.name)
                 except OSError:
                     pass
+                except (TypeError, ValueError) as e:
+                    # On Linux, abstract namespace UNIX sockets start with a
+                    # \0, which os.path doesn't like.
+                    if not _PY3 and not platform.isLinux():
+                        raise e
             return res
 
 
     def __repr__(self):
-        return 'UNIXAddress(%r)' % (self.name,)
+        name = self.name
+        if name:
+            name = _coerceToFilesystemEncoding('', self.name)
+        return 'UNIXAddress(%r)' % (name,)
 
 
     def __hash__(self):
@@ -135,11 +200,11 @@ class UNIXAddress(object, util.FancyEqMixin):
 
 
 
-# These are for buildFactory backwards compatability due to
+# These are for buildFactory backwards compatibility due to
 # stupidity-induced inconsistency.
 
 class _ServerFactoryIPv4Address(IPv4Address):
-    """Backwards compatability hack. Just like IPv4Address in practice."""
+    """Backwards compatibility hack. Just like IPv4Address in practice."""
 
     def __eq__(self, other):
         if isinstance(other, tuple):
