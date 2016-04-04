@@ -5,9 +5,10 @@
 Test cases for twisted.words.xish.utility
 """
 
+from collections import OrderedDict
+
 from twisted.trial import unittest
 
-from twisted.python.util import OrderedDict
 from twisted.words.xish import utility
 from twisted.words.xish.domish import Element
 from twisted.words.xish.utility import EventDispatcher
@@ -53,7 +54,7 @@ class OrderedCallbackTracker:
 
 
 
-class EventDispatcherTest(unittest.TestCase):
+class EventDispatcherTests(unittest.TestCase):
     """
     Tests for L{EventDispatcher}.
     """
@@ -308,7 +309,7 @@ class EventDispatcherTest(unittest.TestCase):
 
 
 
-class XmlPipeTest(unittest.TestCase):
+class XmlPipeTests(unittest.TestCase):
     """
     Tests for L{twisted.words.xish.utility.XmlPipe}.
     """

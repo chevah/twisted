@@ -275,7 +275,7 @@ class SessionInitializer(xmlstream.BaseFeatureInitiatingInitializer):
 
     def start(self):
         iq = xmlstream.IQ(self.xmlstream, 'set')
-        session = iq.addElement((NS_XMPP_SESSION, 'session'))
+        iq.addElement((NS_XMPP_SESSION, 'session'))
         return iq.send()
 
 
@@ -350,7 +350,7 @@ class XMPPAuthenticator(xmlstream.ConnectAuthenticator):
 
         Populates stream's list of initializers, along with their
         requiredness. This list is used by
-        L{ConnectAuthenticator.initializeStream} to perform the initalization
+        L{ConnectAuthenticator.initializeStream} to perform the initialization
         steps.
         """
         xmlstream.ConnectAuthenticator.associateWithStream(self, xs)
