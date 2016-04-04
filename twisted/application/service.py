@@ -1,3 +1,4 @@
+# -*- test-case-name: twisted.application.test.test_service -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
@@ -13,12 +14,14 @@ a sibling).
 Maintainer: Moshe Zadka
 """
 
-from zope.interface import implements, Interface, Attribute
+from __future__ import absolute_import, division
 
+from zope.interface import implementer, Interface, Attribute
+
+from twisted.persisted import sob
 from twisted.python.reflect import namedAny
 from twisted.python import components
 from twisted.internet import defer
-from twisted.persisted import sob
 from twisted.plugin import IPlugin
 
 
@@ -56,12 +59,11 @@ class IServiceMaker(Interface):
 
 
 
+@implementer(IPlugin, IServiceMaker)
 class ServiceMaker(object):
     """
     Utility class to simplify the definition of L{IServiceMaker} plugins.
     """
-    implements(IPlugin, IServiceMaker)
-
     def __init__(self, name, module, description, tapname):
         self.name = name
         self.module = module
@@ -152,16 +154,16 @@ class IService(Interface):
         """
 
 
-class Service:
+
+@implementer(IService)
+class Service(object):
     """
     Base class for services.
 
     Most services should inherit from this class. It handles the
-    book-keeping reponsibilities of starting and stopping, as well
+    book-keeping responsibilities of starting and stopping, as well
     as not serializing this book-keeping information.
     """
-
-    implements(IService)
 
     running = 0
     name = None
@@ -169,7 +171,7 @@ class Service:
 
     def __getstate__(self):
         dict = self.__dict__.copy()
-        if dict.has_key("running"):
+        if "running" in dict:
             del dict['running']
         return dict
 
@@ -254,6 +256,7 @@ class IServiceCollection(Interface):
 
 
 
+@implementer(IServiceCollection)
 class MultiService(Service):
     """
     Straightforward Service Container.
@@ -263,8 +266,6 @@ class MultiService(Service):
     will not finish shutting down until all of its child services
     will finish.
     """
-
-    implements(IServiceCollection)
 
     def __init__(self):
         self.services = []
@@ -298,7 +299,7 @@ class MultiService(Service):
 
     def addService(self, service):
         if service.name is not None:
-            if self.namedServices.has_key(service.name):
+            if service.name in self.namedServices:
                 raise RuntimeError("cannot have two services with same name"
                                    " '%s'" % service.name)
             self.namedServices[service.name] = service
@@ -347,6 +348,7 @@ class IProcess(Interface):
 
 
 
+@implementer(IProcess)
 class Process:
     """
     Process running parameters.
@@ -354,7 +356,6 @@ class Process:
     Sets up uid/gid in the constructor, and has a default
     of C{None} as C{processName}.
     """
-    implements(IProcess)
     processName = None
 
     def __init__(self, uid=None, gid=None):
@@ -371,6 +372,7 @@ class Process:
         self.gid = gid
 
 
+
 def Application(name, uid=None, gid=None):
     """
     Return a compound class.
@@ -381,7 +383,10 @@ def Application(name, uid=None, gid=None):
     one of the interfaces.
     """
     ret = components.Componentized()
-    for comp in (MultiService(), sob.Persistent(ret, name), Process(uid, gid)):
+    availableComponents = [MultiService(), Process(uid, gid),
+                           sob.Persistent(ret, name)]
+
+    for comp in availableComponents:
         ret.addComponent(comp, ignoreClass=1)
     IService(ret).setName(name)
     return ret
@@ -402,7 +407,8 @@ def loadApplication(filename, kind, passphrase=None):
     @type passphrase: C{str}
     """
     if kind == 'python':
-        application = sob.loadValueFromFile(filename, 'application', passphrase)
+        application = sob.loadValueFromFile(filename, 'application',
+                                            passphrase)
     else:
         application = sob.load(filename, kind, passphrase)
     return application
