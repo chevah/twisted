@@ -2,6 +2,7 @@
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
+from __future__ import division, absolute_import
 
 # System Imports
 import sys
@@ -13,22 +14,33 @@ try:
 except ImportError:
     import pickle
 
+import io
+
 try:
-    import cStringIO as StringIO
+    from cStringIO import StringIO as _oldStyleCStringIO
 except ImportError:
-    import StringIO
+    skipStringIO = "No cStringIO available."
+else:
+    skipStringIO = None
+
+try:
+    import copyreg
+except:
+    import copy_reg as copyreg
 
 # Twisted Imports
 from twisted.persisted import styles, aot, crefutil
+from twisted.python.compat import _PY3
 
 
-class VersionTestCase(unittest.TestCase):
-    def testNullVersionUpgrade(self):
+class VersionTests(unittest.TestCase):
+    def test_nullVersionUpgrade(self):
         global NullVersioned
-        class NullVersioned:
-            ok = 0
+        class NullVersioned(object):
+            def __init__(self):
+                self.ok = 0
         pkcl = pickle.dumps(NullVersioned())
-        class NullVersioned(styles.Versioned):
+        class NullVersioned(styles.Versioned, object):
             persistenceVersion = 1
             def upgradeToVersion1(self):
                 self.ok = 1
@@ -36,7 +48,7 @@ class VersionTestCase(unittest.TestCase):
         styles.doUpgrade()
         assert mnv.ok, "initial upgrade not run!"
 
-    def testVersionUpgrade(self):
+    def test_versionUpgrade(self):
         global MyVersioned
         class MyVersioned(styles.Versioned):
             persistenceVersion = 2
@@ -67,7 +79,7 @@ class VersionTestCase(unittest.TestCase):
         assert obj.v3 == 1, "upgraded unnecessarily"
         assert obj.v4 == 1, "upgraded unnecessarily"
     
-    def testNonIdentityHash(self):
+    def test_nonIdentityHash(self):
         global ClassWithCustomHash
         class ClassWithCustomHash(styles.Versioned):
             def __init__(self, unique, hash):
@@ -90,7 +102,7 @@ class VersionTestCase(unittest.TestCase):
         self.failUnless(v1.upgraded)
         self.failUnless(v2.upgraded)
     
-    def testUpgradeDeserializesObjectsRequiringUpgrade(self):
+    def test_upgradeDeserializesObjectsRequiringUpgrade(self):
         global ToyClassA, ToyClassB
         class ToyClassA(styles.Versioned):
             pass
@@ -181,9 +193,9 @@ class MyEphemeral(styles.Ephemeral):
         self.x = x
 
 
-class EphemeralTestCase(unittest.TestCase):
+class EphemeralTests(unittest.TestCase):
 
-    def testEphemeral(self):
+    def test_ephemeral(self):
         o = MyEphemeral(3)
         self.assertEqual(o.__class__, MyEphemeral)
         self.assertEqual(o.x, 3)
@@ -203,6 +215,57 @@ class Pickleable:
     def getX(self):
         return self.x
 
+
+
+class NotPickleable(object):
+    """
+    A class that is not pickleable.
+    """
+
+    def __reduce__(self):
+        """
+        Raise an exception instead of pickling.
+        """
+        raise TypeError("Not serializable.")
+
+
+
+class CopyRegistered(object):
+    """
+    A class that is pickleable only because it is registered with the
+    C{copyreg} module.
+    """
+
+    def __init__(self):
+        """
+        Ensure that this object is normally not pickleable.
+        """
+        self.notPickleable = NotPickleable()
+
+
+
+class CopyRegisteredLoaded(object):
+    """
+    L{CopyRegistered} after unserialization.
+    """
+
+
+
+def reduceCopyRegistered(cr):
+    """
+    Externally implement C{__reduce__} for L{CopyRegistered}.
+
+    @param cr: The L{CopyRegistered} instance.
+
+    @return: a 2-tuple of callable and argument list, in this case
+        L{CopyRegisteredLoaded} and no arguments.
+    """
+    return CopyRegisteredLoaded, ()
+
+
+
+copyreg.pickle(CopyRegistered, reduceCopyRegistered)
+
 class A:
     """
     dummy class
@@ -220,33 +283,74 @@ class B:
 def funktion():
     pass
 
-class PicklingTestCase(unittest.TestCase):
+class PicklingTests(unittest.TestCase):
     """Test pickling of extra object types."""
     
-    def testModule(self):
+    def test_module(self):
         pickl = pickle.dumps(styles)
         o = pickle.loads(pickl)
         self.assertEqual(o, styles)
-    
-    def testClassMethod(self):
+
+
+    def test_classMethod(self):
+        """
+        After importing L{twisted.persisted.styles}, it is possible to pickle
+        classmethod objects.
+        """
         pickl = pickle.dumps(Pickleable.getX)
         o = pickle.loads(pickl)
         self.assertEqual(o, Pickleable.getX)
-    
-    def testInstanceMethod(self):
+
+    if sys.version_info > (3, 4):
+        test_classMethod.skip = (
+            "As of Python 3.4 it is no longer possible to globally change "
+            "the behavior of function pickling."
+        )
+
+
+    def test_instanceMethod(self):
         obj = Pickleable(4)
         pickl = pickle.dumps(obj.getX)
         o = pickle.loads(pickl)
         self.assertEqual(o(), 4)
         self.assertEqual(type(o), type(obj.getX))
     
-    def testStringIO(self):
-        f = StringIO.StringIO()
+    def test_stringIO(self):
+        f = _oldStyleCStringIO()
         f.write("abc")
         pickl = pickle.dumps(f)
         o = pickle.loads(pickl)
         self.assertEqual(type(o), type(f))
         self.assertEqual(f.getvalue(), "abc")
+
+    if skipStringIO:
+        test_stringIO.skip = skipStringIO
+
+
+
+class StringIOTransitionTests(unittest.TestCase):
+    """
+    When pickling a cStringIO in Python 2, it should unpickle as a BytesIO or a
+    StringIO in Python 3, depending on the type of its contents.
+    """
+
+    if not _PY3:
+        skip = "In Python 2 we can still unpickle cStringIO as such."
+
+
+    def test_unpickleBytesIO(self):
+        """
+        A cStringIO pickled with bytes in it will yield an L{io.BytesIO} on
+        python 3.
+        """
+        pickledStringIWithText = (
+            b"ctwisted.persisted.styles\nunpickleStringI\np0\n"
+            b"(S'test'\np1\nI0\ntp2\nRp3\n."
+        )
+        loaded = pickle.loads(pickledStringIWithText)
+        self.assertIsInstance(loaded, io.StringIO)
+        self.assertEqual(loaded.getvalue(), u"test")
+
 
 
 class EvilSourceror:
@@ -261,19 +365,22 @@ class NonDictState:
     def __setstate__(self, state):
         self.state = state
 
-class AOTTestCase(unittest.TestCase):
-    def testSimpleTypes(self):
-        obj = (1, 2.0, 3j, True, slice(1, 2, 3), 'hello', u'world', sys.maxint + 1, None, Ellipsis)
+class AOTTests(unittest.TestCase):
+    def test_simpleTypes(self):
+        obj = (1, 2.0, 3j, True, slice(1, 2, 3), 'hello', u'world',
+               sys.maxsize + 1, None, Ellipsis)
         rtObj = aot.unjellyFromSource(aot.jellyToSource(obj))
         self.assertEqual(obj, rtObj)
 
-    def testMethodSelfIdentity(self):
+
+    def test_methodSelfIdentity(self):
         a = A()
         b = B()
         a.bmethod = b.bmethod
         b.a = a
         im_ = aot.unjellyFromSource(aot.jellyToSource(b)).a.bmethod
-        self.assertEqual(im_.im_class, im_.im_self.__class__)
+        self.assertEqual(aot._selfOfMethod(im_).__class__,
+                         aot._classOfMethod(im_))
 
 
     def test_methodNotSelfIdentity(self):
@@ -298,16 +405,17 @@ class AOTTestCase(unittest.TestCase):
     def test_unsupportedType(self):
         """
         L{aot.jellyToSource} should raise a C{TypeError} when trying to jelly
-        an unknown type.
+        an unknown type without a C{__dict__} property or C{__getstate__}
+        method.
         """
-        try:
-            set
-        except:
-            from sets import Set as set
-        self.assertRaises(TypeError, aot.jellyToSource, set())
+        class UnknownType(object):
+            @property
+            def __dict__(self):
+                raise AttributeError()
+        self.assertRaises(TypeError, aot.jellyToSource, UnknownType())
 
 
-    def testBasicIdentity(self):
+    def test_basicIdentity(self):
         # Anyone wanting to make this datastructure more complex, and thus this
         # test more comprehensive, is welcome to do so.
         aj = aot.AOTJellier().jellyToAO
@@ -315,7 +423,7 @@ class AOTTestCase(unittest.TestCase):
         l = [1, 2, 3,
              "he\tllo\n\n\"x world!",
              u"goodbye \n\t\u1010 world!",
-             1, 1.0, 100 ** 100l, unittest, aot.AOTJellier, d,
+             1, 1.0, 100 ** 100, unittest, aot.AOTJellier, d,
              funktion
              ]
         t = tuple(l)
@@ -327,20 +435,22 @@ class AOTTestCase(unittest.TestCase):
         assert uj[1][0:5] == l[0:5]
 
 
-    def testNonDictState(self):
+    def test_nonDictState(self):
         a = NonDictState()
         a.state = "meringue!"
         assert aot.unjellyFromSource(aot.jellyToSource(a)).state == a.state
 
-    def testCopyReg(self):
-        s = "foo_bar"
-        sio = StringIO.StringIO()
-        sio.write(s)
-        uj = aot.unjellyFromSource(aot.jellyToSource(sio))
-        # print repr(uj.__dict__)
-        assert uj.getvalue() == s
 
-    def testFunkyReferences(self):
+    def test_copyReg(self):
+        """
+        L{aot.jellyToSource} and L{aot.unjellyFromSource} honor functions
+        registered in the pickle copy registry.
+        """
+        uj = aot.unjellyFromSource(aot.jellyToSource(CopyRegistered()))
+        self.assertIsInstance(uj, CopyRegisteredLoaded)
+
+
+    def test_funkyReferences(self):
         o = EvilSourceror(EvilSourceror([]))
         j1 = aot.jellyToAOT(o)
         oj = aot.unjellyFromAOT(j1)
@@ -350,7 +460,22 @@ class AOTTestCase(unittest.TestCase):
         assert oj.c is not oj.c.c
 
 
-class CrefUtilTestCase(unittest.TestCase):
+    def test_circularTuple(self):
+        """
+        L{aot.jellyToAOT} can persist circular references through tuples.
+        """
+        l = []
+        t = (l, 4321)
+        l.append(t)
+        j1 = aot.jellyToAOT(l)
+        oj = aot.unjellyFromAOT(j1)
+        self.assertIsInstance(oj[0], tuple)
+        self.assertIs(oj[0][0], oj)
+        self.assertEqual(oj[0][1], 4321)
+
+
+
+class CrefUtilTests(unittest.TestCase):
     """
     Tests for L{crefutil}.
     """
@@ -372,6 +497,39 @@ class CrefUtilTestCase(unittest.TestCase):
         self.assertRaises(RuntimeError, d.__setitem__, 0, 1)
 
 
+    def test_containerWhereAllElementsAreKnown(self):
+        """
+        A L{crefutil._Container} where all of its elements are known at
+        construction time is nonsensical and will result in errors in any call
+        to addDependant.
+        """
+        container = crefutil._Container([1, 2, 3], list)
+        self.assertRaises(AssertionError,
+                          container.addDependant, {}, "ignore-me")
 
-testCases = [VersionTestCase, EphemeralTestCase, PicklingTestCase]
+
+    def test_dontPutCircularReferencesInDictionaryKeys(self):
+        """
+        If a dictionary key contains a circular reference (which is probably a
+        bad practice anyway) it will be resolved by a
+        L{crefutil._DictKeyAndValue}, not by placing a L{crefutil.NotKnown}
+        into a dictionary key.
+        """
+        self.assertRaises(AssertionError,
+                          dict().__setitem__, crefutil.NotKnown(), "value")
+
+
+    def test_dontCallInstanceMethodsThatArentReady(self):
+        """
+        L{crefutil._InstanceMethod} raises L{AssertionError} to indicate it
+        should not be called.  This should not be possible with any of its API
+        clients, but is provided for helping to debug.
+        """
+        self.assertRaises(AssertionError,
+                          crefutil._InstanceMethod(
+                              "no_name", crefutil.NotKnown(), type))
+
+
+
+testCases = [VersionTests, EphemeralTests, PicklingTests]
 

@@ -6,24 +6,28 @@ Tests for L{twisted.application} and its interaction with
 L{twisted.persisted.sob}.
 """
 
-import copy, os, pickle
-from StringIO import StringIO
+from __future__ import absolute_import, division
 
-from twisted.trial import unittest, util
-from twisted.application import service, internet, app
+import copy
+import os
+import pickle
+
+from twisted.application import service, internet, app, reactors
+from twisted.internet import interfaces, defer, protocol, reactor
 from twisted.persisted import sob
-from twisted.python import usage
-from twisted.internet import interfaces, defer
 from twisted.protocols import wire, basic
-from twisted.internet import protocol, reactor
-from twisted.application import reactors
+from twisted.python import usage
+from twisted.python.compat import NativeStringIO
+from twisted.python.test.modules_helpers import TwistedModulesMixin
 from twisted.test.proto_helpers import MemoryReactor
+from twisted.trial import unittest
+
 
 
 class Dummy:
     processName=None
 
-class TestService(unittest.TestCase):
+class ServiceTests(unittest.TestCase):
 
     def testName(self):
         s = service.Service()
@@ -150,7 +154,7 @@ else:
     curuid = curgid = 0
 
 
-class TestProcess(unittest.TestCase):
+class ProcessTests(unittest.TestCase):
 
     def testID(self):
         p = service.Process(5, 6)
@@ -175,7 +179,7 @@ class TestProcess(unittest.TestCase):
         self.assertEqual(p.processName, 'hello')
 
 
-class TestInterfaces(unittest.TestCase):
+class InterfacesTests(unittest.TestCase):
 
     def testService(self):
         self.assert_(service.IService.providedBy(service.Service()))
@@ -188,7 +192,7 @@ class TestInterfaces(unittest.TestCase):
         self.assert_(service.IProcess.providedBy(service.Process()))
 
 
-class TestApplication(unittest.TestCase):
+class ApplicationTests(unittest.TestCase):
 
     def testConstructor(self):
         service.Application("hello")
@@ -219,7 +223,7 @@ class TestApplication(unittest.TestCase):
         self.assertEqual(p.name, 'hello')
         self.assert_(p.original is a)
 
-class TestLoading(unittest.TestCase):
+class LoadingTests(unittest.TestCase):
 
     def test_simpleStoreAndLoad(self):
         a = service.Application("hello")
@@ -240,7 +244,7 @@ class TestLoading(unittest.TestCase):
 
 
 
-class TestAppSupport(unittest.TestCase):
+class AppSupportTests(unittest.TestCase):
 
     def testPassphrase(self):
         self.assertEqual(app.getPassphrase(0), None)
@@ -289,7 +293,7 @@ class TestAppSupport(unittest.TestCase):
 
 class Foo(basic.LineReceiver):
     def connectionMade(self):
-        self.transport.write('lalala\r\n')
+        self.transport.write(b'lalala\r\n')
     def lineReceived(self, line):
         self.factory.line = line
         self.transport.loseConnection()
@@ -311,11 +315,15 @@ class TimerTarget:
     def append(self, what):
         self.l.append(what)
 
+
+
 class TestEcho(wire.Echo):
     def connectionLost(self, reason):
         self.d.callback(True)
 
-class TestInternet2(unittest.TestCase):
+
+
+class InternetTests(unittest.TestCase):
 
     def testTCP(self):
         s = service.MultiService()
@@ -331,7 +339,7 @@ class TestInternet2(unittest.TestCase):
         factory.protocol = Foo
         factory.line = None
         internet.TCPClient('127.0.0.1', num, factory).setServiceParent(s)
-        factory.d.addCallback(self.assertEqual, 'lalala')
+        factory.d.addCallback(self.assertEqual, b'lalala')
         factory.d.addCallback(lambda x : s.stopService())
         factory.d.addCallback(lambda x : TestEcho.d)
         return factory.d
@@ -371,7 +379,7 @@ class TestInternet2(unittest.TestCase):
         factory.line = None
         c = internet.TCPClient('127.0.0.1', num, factory)
         c.startService()
-        factory.d.addCallback(self.assertEqual, 'lalala')
+        factory.d.addCallback(self.assertEqual, b'lalala')
         factory.d.addCallback(lambda x : c.stopService())
         factory.d.addCallback(lambda x : t.stopService())
         factory.d.addCallback(lambda x : TestEcho.d)
@@ -394,8 +402,6 @@ class TestInternet2(unittest.TestCase):
     def testUNIX(self):
         # FIXME: This test is far too dense.  It needs comments.
         #  -- spiv, 2004-11-07
-        if not interfaces.IReactorUNIX(reactor, None):
-            raise unittest.SkipTest, "This reactor does not support UNIX domain sockets"
         s = service.MultiService()
         s.startService()
         factory = protocol.ServerFactory()
@@ -408,25 +414,24 @@ class TestInternet2(unittest.TestCase):
         factory.d = defer.Deferred()
         factory.line = None
         internet.UNIXClient('echo.skt', factory).setServiceParent(s)
-        factory.d.addCallback(self.assertEqual, 'lalala')
+        factory.d.addCallback(self.assertEqual, b'lalala')
         factory.d.addCallback(lambda x : s.stopService())
         factory.d.addCallback(lambda x : TestEcho.d)
         factory.d.addCallback(self._cbTestUnix, factory, s)
         return factory.d
+
 
     def _cbTestUnix(self, ignored, factory, s):
         TestEcho.d = defer.Deferred()
         factory.line = None
         factory.d = defer.Deferred()
         s.startService()
-        factory.d.addCallback(self.assertEqual, 'lalala')
+        factory.d.addCallback(self.assertEqual, b'lalala')
         factory.d.addCallback(lambda x : s.stopService())
         factory.d.addCallback(lambda x : TestEcho.d)
         return factory.d
 
     def testVolatile(self):
-        if not interfaces.IReactorUNIX(reactor, None):
-            raise unittest.SkipTest, "This reactor does not support UNIX domain sockets"
         factory = protocol.ServerFactory()
         factory.protocol = wire.Echo
         t = internet.UNIXServer('echo.skt', factory)
@@ -450,8 +455,6 @@ class TestInternet2(unittest.TestCase):
         self.failIf(t.running)
 
     def testStoppingServer(self):
-        if not interfaces.IReactorUNIX(reactor, None):
-            raise unittest.SkipTest, "This reactor does not support UNIX domain sockets"
         factory = protocol.ServerFactory()
         factory.protocol = wire.Echo
         t = internet.UNIXServer('echo.skt', factory)
@@ -463,6 +466,13 @@ class TestInternet2(unittest.TestCase):
         factory.clientConnectionFailed = lambda *args: d.callback(None)
         reactor.connectUNIX('echo.skt', factory)
         return d
+
+    if not interfaces.IReactorUNIX(reactor, None):
+        _skipMsg = "This reactor does not support UNIX domain sockets"
+        testUNIX.skip = _skipMsg
+        testVolatile.skip = _skipMsg
+        testStoppingServer.skip = _skipMsg
+
 
     def testPickledTimer(self):
         target = TimerTarget()
@@ -476,7 +486,7 @@ class TestInternet2(unittest.TestCase):
 
     def testBrokenTimer(self):
         d = defer.Deferred()
-        t = internet.TimerService(1, lambda: 1 / 0)
+        t = internet.TimerService(1, lambda: 1 // 0)
         oldFailed = t._failed
         def _failed(why):
             oldFailed(why)
@@ -490,34 +500,6 @@ class TestInternet2(unittest.TestCase):
         return d
 
 
-    def test_genericServerDeprecated(self):
-        """
-        Instantiating L{GenericServer} emits a deprecation warning.
-        """
-        internet.GenericServer()
-        warnings = self.flushWarnings(
-            offendingFunctions=[self.test_genericServerDeprecated])
-        self.assertEqual(
-            warnings[0]['message'],
-            'GenericServer was deprecated in Twisted 10.1.')
-        self.assertEqual(warnings[0]['category'], DeprecationWarning)
-        self.assertEqual(len(warnings), 1)
-
-
-    def test_genericClientDeprecated(self):
-        """
-        Instantiating L{GenericClient} emits a deprecation warning.
-        """
-        internet.GenericClient()
-        warnings = self.flushWarnings(
-            offendingFunctions=[self.test_genericClientDeprecated])
-        self.assertEqual(
-            warnings[0]['message'],
-            'GenericClient was deprecated in Twisted 10.1.')
-        self.assertEqual(warnings[0]['category'], DeprecationWarning)
-        self.assertEqual(len(warnings), 1)
-
-
     def test_everythingThere(self):
         """
         L{twisted.application.internet} dynamically defines a set of
@@ -528,11 +510,11 @@ class TestInternet2(unittest.TestCase):
         for tran in trans[:]:
             if not getattr(interfaces, "IReactor" + tran)(reactor, None):
                 trans.remove(tran)
-        if interfaces.IReactorArbitrary(reactor, None) is not None:
-            trans.insert(0, "Generic")
         for tran in trans:
             for side in 'Server Client'.split():
                 if tran == "Multicast" and side == "Client":
+                    continue
+                if tran == "UDP" and side == "Client":
                     continue
                 self.assertTrue(hasattr(internet, tran + side))
                 method = getattr(internet, tran + side).method
@@ -541,13 +523,6 @@ class TestInternet2(unittest.TestCase):
                         (prefix == "connect" and method == "UDP"))
                 o = getattr(internet, tran + side)()
                 self.assertEqual(service.IService(o), o)
-    test_everythingThere.suppress = [
-        util.suppress(message='GenericServer was deprecated in Twisted 10.1.',
-                      category=DeprecationWarning),
-        util.suppress(message='GenericClient was deprecated in Twisted 10.1.',
-                      category=DeprecationWarning),
-        util.suppress(message='twisted.internet.interfaces.IReactorArbitrary was '
-                      'deprecated in Twisted 10.1.0: See IReactorFDSet.')]
 
 
     def test_importAll(self):
@@ -626,7 +601,7 @@ class TestInternet2(unittest.TestCase):
 
 
 
-class TestTimerBasic(unittest.TestCase):
+class TimerBasicTests(unittest.TestCase):
 
     def testTimerRuns(self):
         d = defer.Deferred()
@@ -694,7 +669,7 @@ class FakeReactor(reactors.Reactor):
 
 
 
-class PluggableReactorTestCase(unittest.TestCase):
+class PluggableReactorTests(TwistedModulesMixin, unittest.TestCase):
     """
     Tests for the reactor discovery/inspection APIs.
     """
@@ -760,8 +735,11 @@ class PluggableReactorTestCase(unittest.TestCase):
         installed = []
         def install():
             installed.append(True)
-        installer = FakeReactor(install,
-                                'fakereactortest', __name__, 'described')
+        fakeReactor = FakeReactor(install,
+                                  'fakereactortest', __name__, 'described')
+        modules = {'fakereactortest': fakeReactor}
+        self.replaceSysModules(modules)
+        installer = reactors.Reactor('fakereactor', 'fakereactortest', 'described')
         installer.install()
         self.assertEqual(installed, [True])
 
@@ -778,6 +756,42 @@ class PluggableReactorTestCase(unittest.TestCase):
         package = __name__
         description = 'description'
         self.pluginResults = [FakeReactor(install, name, package, description)]
+        reactors.installReactor(name)
+        self.assertEqual(installed, [True])
+
+
+    def test_installReactorReturnsReactor(self):
+        """
+        Test that the L{reactors.installReactor} function correctly returns
+        the installed reactor.
+        """
+        reactor = object()
+        def install():
+            from twisted import internet
+            self.patch(internet, 'reactor', reactor)
+        name = 'fakereactortest'
+        package = __name__
+        description = 'description'
+        self.pluginResults = [FakeReactor(install, name, package, description)]
+        installed = reactors.installReactor(name)
+        self.assertIdentical(installed, reactor)
+
+
+    def test_installReactorMultiplePlugins(self):
+        """
+        Test that the L{reactors.installReactor} function correctly installs
+        the specified reactor when there are multiple reactor plugins.
+        """
+        installed = []
+        def install():
+            installed.append(True)
+        name = 'fakereactortest'
+        package = __name__
+        description = 'description'
+        fakeReactor = FakeReactor(install, name, package, description)
+        otherReactor = FakeReactor(lambda: None,
+                                   "otherreactor", package, description)
+        self.pluginResults = [otherReactor, fakeReactor]
         reactors.installReactor(name)
         self.assertEqual(installed, [True])
 
@@ -846,7 +860,7 @@ class PluggableReactorTestCase(unittest.TestCase):
         self.pluginResults = []
 
         options = ReactorSelectionOptions()
-        options.messageOutput = StringIO()
+        options.messageOutput = NativeStringIO()
         e = self.assertRaises(usage.UsageError, options.parseOptions,
                               ['--reactor', 'fakereactortest', 'subcommand'])
         self.assertIn("fakereactortest", e.args[0])
@@ -871,7 +885,7 @@ class PluggableReactorTestCase(unittest.TestCase):
         self.pluginResults = [FakeReactor(install, name, package, description)]
 
         options = ReactorSelectionOptions()
-        options.messageOutput = StringIO()
+        options.messageOutput = NativeStringIO()
         e =  self.assertRaises(usage.UsageError, options.parseOptions,
                                ['--reactor', 'fakereactortest', 'subcommand'])
         self.assertIn(message, e.args[0])

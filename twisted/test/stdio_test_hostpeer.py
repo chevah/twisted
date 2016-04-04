@@ -1,23 +1,26 @@
-# -*- test-case-name: twisted.test.test_stdio.StandardInputOutputTestCase.test_hostAndPeer -*-
+# -*- test-case-name: twisted.test.test_stdio.StandardInputOutputTests.test_hostAndPeer -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
 """
 Main program for the child process run by
-L{twisted.test.test_stdio.StandardInputOutputTestCase.test_hostAndPeer} to test
+L{twisted.test.test_stdio.StandardInputOutputTests.test_hostAndPeer} to test
 that ITransport.getHost() and ITransport.getPeer() work for process transports.
 """
 
-import sys, _preamble
+from __future__ import absolute_import, division
+
+__import__('_preamble')
+import sys
 
 from twisted.internet import stdio, protocol
 from twisted.python import reflect
 
 class HostPeerChild(protocol.Protocol):
     def connectionMade(self):
-        self.transport.write('\n'.join([
-            str(self.transport.getHost()),
-            str(self.transport.getPeer())]))
+        self.transport.write(b'\n'.join([
+            str(self.transport.getHost()).encode('ascii'),
+            str(self.transport.getPeer()).encode('ascii')]))
         self.transport.loseConnection()
 
 

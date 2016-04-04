@@ -5,11 +5,18 @@
 Tests for implementations of L{IReactorUNIX} and L{IReactorUNIXDatagram}.
 """
 
-import stat, os, sys, types
+from __future__ import division, absolute_import
+
+import os
+import sys
+import types
 import socket
 
-from twisted.internet import interfaces, reactor, protocol, error, address, defer, utils
+from twisted.internet import interfaces, reactor, protocol, error, address
+from twisted.internet import defer, utils
 from twisted.python import lockfile
+from twisted.python.compat import _PY3, networkString
+from twisted.python.filepath import FilePath
 from twisted.trial import unittest
 
 from twisted.test.test_tcp import MyServerFactory, MyClientFactory
@@ -24,7 +31,7 @@ class FailedConnectionClientFactory(protocol.ClientFactory):
 
 
 
-class UnixSocketTestCase(unittest.TestCase):
+class UnixSocketTests(unittest.TestCase):
     """
     Test unix sockets.
     """
@@ -66,10 +73,10 @@ class UnixSocketTestCase(unittest.TestCase):
         clientFactory = MyClientFactory()
         clientConnMade = defer.Deferred()
         clientFactory.protocolConnectionMade = clientConnMade
-        c = reactor.connectUNIX(filename, clientFactory)
+        reactor.connectUNIX(filename, clientFactory)
         d = defer.gatherResults([serverConnMade, clientConnMade])
-        def allConnected((serverProtocol, clientProtocol)):
-
+        def allConnected(args):
+            serverProtocol, clientProtocol = args
             # Incidental assertion which may or may not be redundant with some
             # other test.  This probably deserves its own test method.
             self.assertEqual(clientFactory.peerAddresses,
@@ -100,10 +107,11 @@ class UnixSocketTestCase(unittest.TestCase):
         clientFactory = MyClientFactory()
         clientConnMade = defer.Deferred()
         clientFactory.protocolConnectionMade = clientConnMade
-        c = reactor.connectUNIX(filename, clientFactory, checkPID=1)
+        reactor.connectUNIX(filename, clientFactory, checkPID=1)
 
         d = defer.gatherResults([serverConnMade, clientConnMade])
-        def _portStuff((serverProtocol, clientProto)):
+        def _portStuff(args):
+            serverProtocol, clientProto = args
 
             # Incidental assertion which may or may not be redundant with some
             # other test.  This probably deserves its own test method.
@@ -143,11 +151,15 @@ class UnixSocketTestCase(unittest.TestCase):
 
     def _uncleanSocketTest(self, callback):
         self.filename = self.mktemp()
-        source = ("from twisted.internet import protocol, reactor\n"
-                  "reactor.listenUNIX(%r, protocol.ServerFactory(), wantPID=True)\n") % (self.filename,)
-        env = {'PYTHONPATH': os.pathsep.join(sys.path)}
+        source = networkString((
+            "from twisted.internet import protocol, reactor\n"
+            "reactor.listenUNIX(%r, protocol.ServerFactory(),"
+            "wantPID=True)\n") % (self.filename,))
+        env = {b'PYTHONPATH': FilePath(
+            os.pathsep.join(sys.path)).asBytesMode().path}
+        pyExe = FilePath(sys.executable).asBytesMode().path
 
-        d = utils.getProcessValue(sys.executable, ("-u", "-c", source), env=env)
+        d = utils.getProcessValue(pyExe, (b"-u", b"-c", source), env=env)
         d.addCallback(callback)
         return d
 
@@ -175,7 +187,7 @@ class UnixSocketTestCase(unittest.TestCase):
         def ranStupidChild(ign):
             d = defer.Deferred()
             f = FailedConnectionClientFactory(d)
-            c = reactor.connectUNIX(self.filename, f, checkPID=True)
+            reactor.connectUNIX(self.filename, f, checkPID=True)
             return self.assertFailure(d, error.BadFileError)
         return self._uncleanSocketTest(ranStupidChild)
 
@@ -221,6 +233,10 @@ class UnixSocketTestCase(unittest.TestCase):
         return self._reprTest(
             ClassicFactory(), "twisted.test.test_unix.ClassicFactory")
 
+    if _PY3:
+        test_reprWithClassicFactory.skip = (
+            "Classic classes do not exist on Python 3.")
+
 
     def test_reprWithNewStyleFactory(self):
         """
@@ -263,6 +279,8 @@ class ClientProto(protocol.ConnectedDatagramProtocol):
         self.gotback = data
         self.deferredGotBack.callback(None)
 
+
+
 class ServerProto(protocol.DatagramProtocol):
     started = stopped = False
     gotwhat = gotfrom = None
@@ -280,13 +298,13 @@ class ServerProto(protocol.DatagramProtocol):
 
     def datagramReceived(self, data, addr):
         self.gotfrom = addr
-        self.transport.write("hi back", addr)
+        self.transport.write(b"hi back", addr)
         self.gotwhat = data
         self.deferredGotWhat.callback(None)
 
 
 
-class DatagramUnixSocketTestCase(unittest.TestCase):
+class DatagramUnixSocketTests(unittest.TestCase):
     """
     Test datagram UNIX sockets.
     """
@@ -306,14 +324,14 @@ class DatagramUnixSocketTestCase(unittest.TestCase):
 
         d = defer.gatherResults([sp.deferredStarted, cp.deferredStarted])
         def write(ignored):
-            cp.transport.write("hi")
+            cp.transport.write(b"hi")
             return defer.gatherResults([sp.deferredGotWhat,
                                         cp.deferredGotBack])
 
         def _cbTestExchange(ignored):
-            self.assertEqual("hi", sp.gotwhat)
+            self.assertEqual(b"hi", sp.gotwhat)
             self.assertEqual(clientaddr, sp.gotfrom)
-            self.assertEqual("hi back", cp.gotback)
+            self.assertEqual(b"hi back", cp.gotback)
 
         d.addCallback(write)
         d.addCallback(_cbTestExchange)
@@ -376,6 +394,10 @@ class DatagramUnixSocketTestCase(unittest.TestCase):
         return self._reprTest(
             ClassicProtocol(), "twisted.test.test_unix.ClassicProtocol")
 
+    if _PY3:
+        test_reprWithClassicProtocol.skip = (
+            "Classic classes do not exist on Python 3.")
+
 
     def test_reprWithNewStyleProtocol(self):
         """
@@ -400,6 +422,6 @@ class DatagramUnixSocketTestCase(unittest.TestCase):
 
 
 if not interfaces.IReactorUNIX(reactor, None):
-    UnixSocketTestCase.skip = "This reactor does not support UNIX domain sockets"
+    UnixSocketTests.skip = "This reactor does not support UNIX domain sockets"
 if not interfaces.IReactorUNIXDatagram(reactor, None):
-    DatagramUnixSocketTestCase.skip = "This reactor does not support UNIX datagram sockets"
+    DatagramUnixSocketTests.skip = "This reactor does not support UNIX datagram sockets"

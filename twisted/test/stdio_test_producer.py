@@ -1,37 +1,41 @@
-# -*- test-case-name: twisted.test.test_stdio.StandardInputOutputTestCase.test_producer -*-
+# -*- test-case-name: twisted.test.test_stdio.StandardInputOutputTests.test_producer -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
 """
 Main program for the child process run by
-L{twisted.test.test_stdio.StandardInputOutputTestCase.test_producer} to test
+L{twisted.test.test_stdio.StandardInputOutputTests.test_producer} to test
 that process transports implement IProducer properly.
 """
 
-import sys, _preamble
+from __future__ import absolute_import, division
+
+__import__('_preamble')
+import sys
 
 from twisted.internet import stdio, protocol
 from twisted.python import log, reflect
 
+
+
 class ProducerChild(protocol.Protocol):
     _paused = False
-    buf = ''
+    buf = b''
 
     def connectionLost(self, reason):
         log.msg("*****OVER*****")
         reactor.callLater(1, reactor.stop)
-        # reactor.stop()
 
 
-    def dataReceived(self, bytes):
-        self.buf += bytes
+    def dataReceived(self, data):
+        self.buf += data
         if self._paused:
             log.startLogging(sys.stderr)
             log.msg("dataReceived while transport paused!")
             self.transport.loseConnection()
         else:
-            self.transport.write(bytes)
-            if self.buf.endswith('\n0\n'):
+            self.transport.write(data)
+            if self.buf.endswith(b'\n0\n'):
                 self.transport.loseConnection()
             else:
                 self.pause()
@@ -46,6 +50,7 @@ class ProducerChild(protocol.Protocol):
     def unpause(self):
         self._paused = False
         self.transport.resumeProducing()
+
 
 
 if __name__ == '__main__':

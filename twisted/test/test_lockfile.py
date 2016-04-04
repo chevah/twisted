@@ -6,18 +6,21 @@
 Tests for L{twisted.python.lockfile}.
 """
 
-import os, errno
+from __future__ import absolute_import, division
+
+import errno
+import os
 
 from twisted.trial import unittest
 from twisted.python import lockfile
+from twisted.python.reflect import requireModule
 from twisted.python.runtime import platform
 
 skipKill = None
 if platform.isWindows():
-    try:
-        from win32api import OpenProcess
-        import pywintypes
-    except ImportError:
+    if(requireModule('win32api.OpenProcess') is None and
+        requireModule('pywintypes') is None
+            ):
         skipKill = ("On windows, lockfile.kill is not implemented in the "
                     "absence of win32api and/or pywintypes.")
 
@@ -121,7 +124,7 @@ class UtilTests(unittest.TestCase):
 
 
 
-class LockingTestCase(unittest.TestCase):
+class LockingTests(unittest.TestCase):
     def _symlinkErrorTest(self, errno):
         def fakeSymlink(source, dest):
             raise OSError(errno, None)
@@ -290,7 +293,7 @@ class LockingTestCase(unittest.TestCase):
             # Windows implementation of rmlink does, a readlink call
             # will fail with EACCES.
             raise IOError(errno.EACCES, None)
-        readlinkPatch = self.patch(lockfile, 'readlink', fakeReadlink)
+        self.patch(lockfile, 'readlink', fakeReadlink)
 
         lockf = self.mktemp()
         lock = lockfile.FilesystemLock(lockf)

@@ -1,15 +1,18 @@
-# -*- test-case-name: twisted.test.test_stdio.StandardInputOutputTestCase.test_lastWriteReceived -*-
+# -*- test-case-name: twisted.test.test_stdio.StandardInputOutputTests.test_lastWriteReceived -*-
 # Copyright (c) Twisted Matrix Laboratories.
 # See LICENSE for details.
 
 """
 Main program for the child process run by
-L{twisted.test.test_stdio.StandardInputOutputTestCase.test_lastWriteReceived}
+L{twisted.test.test_stdio.StandardInputOutputTests.test_lastWriteReceived}
 to test that L{os.write} can be reliably used after
 L{twisted.internet.stdio.StandardIO} has finished.
 """
 
-import sys, _preamble
+from __future__ import absolute_import, division
+
+__import__('_preamble')
+import sys
 
 from twisted.internet.protocol import Protocol
 from twisted.internet.stdio import StandardIO
@@ -33,7 +36,7 @@ class LastWriteChild(Protocol):
 
 
 def main(reactor, magicString):
-    p = LastWriteChild(reactor, magicString)
+    p = LastWriteChild(reactor, magicString.encode('ascii'))
     StandardIO(p)
     reactor.run()
 
