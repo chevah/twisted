@@ -47,10 +47,10 @@ def main(args):
         getPackages, setup, _EXTRAS_REQUIRE)
 
     scripts = getScripts()
-    STATIC_PACKAGE_METADATA['version'] = STATIC_PACKAGE_METADATA['version'] + '.chevah2'
+    STATIC_PACKAGE_METADATA['version'] = STATIC_PACKAGE_METADATA['version'] + '.chevah3'
     setup_args.update(dict(
         packages=getPackages('twisted'),
-        conditionalExtensions=getExtensions(),
+        # conditionalExtensions=getExtensions(),
         scripts=scripts,
         extras_require=_EXTRAS_REQUIRE,
         data_files=getDataFiles('twisted'),
