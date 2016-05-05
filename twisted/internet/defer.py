@@ -222,7 +222,7 @@ class DebugInfo:
         state, print a traceback (if said errback is a L{Failure}).
         """
         if self.failResult is not None:
-            log.msg("Unhandled error in Deferred:", isError=True)
+            log.critical("Unhandled error in Deferred:", isError=True)
             debugInfo = self._getDebugTracebacks()
             if debugInfo:
                 format = "(debug: {debugInfo})"
