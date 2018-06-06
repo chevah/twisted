@@ -96,7 +96,8 @@ def _fastMPpow(x, y, z=None):
     r = pyPow(gmpy.mpz(x),y,z).binary()[::-1]
     return struct.pack('!L', len(r)) + r
 
-def install():
+
+def install_gmpy():
     global getMP, MP, _MPpow
     getMP = _fastgetMP
     MP = _fastMP
@@ -108,9 +109,59 @@ def install():
         return pyPow(x, y, z)
     __builtin__.pow = _fastpow # evil evil
 
-try:
-    import gmpy
-    install()
-except ImportError:
-    pass
 
+
+def _fastgetMP2(data, count=1):
+    mp = []
+    c = 0
+    for i in range(count):
+        length = struct.unpack('!L', data[c:c+4])[0]
+        mp.append(long(
+            gmpy2.from_binary(b'\x01\x01' + data[c + 4:c + 4 + length][::-1])
+            ))
+        c += length + 4
+    return tuple(mp) + (data[c:],)
+
+
+def _fastMP2(i):
+    result = gmpy2.to_binary(gmpy2.mpz(i))[2:][::-1]
+    if ord(result[0]) & 128:
+        # See https://www.ietf.org/rfc/rfc4251.txt
+        # If the most significant bit would be set for
+        # a positive number, the number MUST be preceded by a zero byte.
+        # Unnecessary leading bytes with the value 0 or 255 MUST NOT be
+        # included.  The value zero MUST be stored as a string with zero
+        # bytes of data.
+        result = b'\x00' + result 
+    return struct.pack('!L', len(result)) + result
+
+
+def _fastMP2pow(x, y, z=None):
+    r = gmpy2.to_binary(pyPow(gmpy2.mpz(x),y,z))[2:][::-1]
+    if ord(r[0]) & 128:
+        r = b'\x00' + r
+    return struct.pack('!L', len(r)) + r
+
+
+def install_gmpy2():
+    global getMP, MP, _MPpow
+    getMP = _fastgetMP2
+    MP = _fastMP2
+    _MPpow = _fastMP2pow
+    # XXX: We override builtin pow so that PyCrypto can benefit from gmpy too.
+    def _fastpow(x, y, z=None, mpz=gmpy2.mpz):
+        if type(x) in (long, int):
+            x = mpz(x)
+        return pyPow(x, y, z)
+    __builtin__.pow = _fastpow # evil evil
+
+
+try:
+    # Use GMP faster computation.
+    import gmpy2
+    install_gmpy2()
+except ImportError:
+    # If GMPY2 is not available, fallback to GMPY (version 1)
+    # This is used on HP-UX for example.
+    import gmpy
+    install_gmpy()
