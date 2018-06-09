@@ -106,7 +106,7 @@ def install_gmpy():
     def _fastpow(x, y, z=None, mpz=gmpy.mpz):
         if type(x) in (long, int):
             x = mpz(x)
-        return pyPow(x, y, z)
+        return long(pyPow(x, y, z))
     __builtin__.pow = _fastpow # evil evil
 
 
@@ -152,7 +152,7 @@ def install_gmpy2():
     def _fastpow(x, y, z=None, mpz=gmpy2.mpz):
         if type(x) in (long, int):
             x = mpz(x)
-        return pyPow(x, y, z)
+        return long(pyPow(x, y, z))
     __builtin__.pow = _fastpow # evil evil
 
 
