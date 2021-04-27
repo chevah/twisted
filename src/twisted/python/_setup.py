@@ -197,6 +197,8 @@ _EXTENSIONS = [
         condition=lambda _: not _PY3 and sys.platform != "win32"),
     ]
 
+# For Chevah we don't use any extensions.
+_EXTENSIONS = []
 
 
 def _longDescriptionArgsFromReadme(readme):
@@ -276,14 +278,14 @@ def getSetupArgs(extensions=_EXTENSIONS, readme='README.rst'):
         # PyHamcrest 1.10.0 is Python 3 only, but lacks package metadata that
         # says so. This condition can be dropped when Twisted drops support for
         # Python 2.7.
-        "PyHamcrest >= 1.9.0, != 1.10.0",
+        # Chevah is not using hamcrest as this is only for testing.
+        #"PyHamcrest >= 1.9.0, != 1.10.0",
         "attrs >= 19.2.0",
     ]
 
     arguments.update(dict(
+        version='20.3.0.chevah1',
         packages=find_packages("src"),
-        use_incremental=True,
-        setup_requires=["incremental >= 16.10.1"],
         install_requires=requirements,
         entry_points={
             'console_scripts': _CONSOLE_SCRIPTS
