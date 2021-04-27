@@ -191,6 +191,51 @@ def getDebugging():
     return Deferred.debug
 
 
+@_oldStyle
+class DebugInfo:
+    """
+    Deferred debug helper.
+    """
+
+    failResult = None
+
+    def _getDebugTracebacks(self):
+        info = ''
+        if hasattr(self, "creator"):
+            info += " C: Deferred was created:\n C:"
+            info += "".join(self.creator).rstrip().replace("\n", "\n C:")
+            info += "\n"
+        if hasattr(self, "invoker"):
+            info += " I: First Invoker was:\n I:"
+            info += "".join(self.invoker).rstrip().replace("\n", "\n I:")
+            info += "\n"
+        return info
+
+
+    def __del__(self):
+        """
+        Print tracebacks and die.
+
+        If the *last* (and I do mean *last*) callback leaves me in an error
+        state, print a traceback (if said errback is a L{Failure}).
+        """
+        if self.failResult is not None:
+            # Note: this is two separate messages for compatibility with
+            # earlier tests; arguably it should be a single error message.
+            log.critical("Unhandled error in Deferred:",
+                         isError=True)
+
+            debugInfo = self._getDebugTracebacks()
+            if debugInfo:
+                format = "(debug: {debugInfo})"
+            else:
+                format = None
+
+            log.failure(format,
+                        self.failResult,
+                        debugInfo=debugInfo)
+
+
 # See module docstring.
 _NO_RESULT = object()
 _CONTINUE = object()
@@ -246,6 +291,8 @@ class Deferred:
     called = False
     paused = False
     _debugInfo = None
+    # Use to auto-debug unhandled errors.
+    _unhandledErrorClass = DebugInfo
     _suppressAlreadyCalled = False
 
     # Are we currently running a user-installed callback?  Meant to prevent
@@ -698,7 +745,7 @@ class Deferred:
                     # reporting.
                     current.result.cleanFailure()
                     if current._debugInfo is None:
-                        current._debugInfo = DebugInfo()
+                        current._debugInfo = self._unhandledErrorClass()
                     current._debugInfo.failResult = current.result
                 else:
                     # Clear out any Failure in the _debugInfo, since the result
@@ -915,54 +962,6 @@ def ensureDeferred(coro):
 
     # Must be a Deferred
     return coro
-
-
-
-
-@_oldStyle
-class DebugInfo:
-    """
-    Deferred debug helper.
-    """
-
-    failResult = None
-
-    def _getDebugTracebacks(self):
-        info = ''
-        if hasattr(self, "creator"):
-            info += " C: Deferred was created:\n C:"
-            info += "".join(self.creator).rstrip().replace("\n", "\n C:")
-            info += "\n"
-        if hasattr(self, "invoker"):
-            info += " I: First Invoker was:\n I:"
-            info += "".join(self.invoker).rstrip().replace("\n", "\n I:")
-            info += "\n"
-        return info
-
-
-    def __del__(self):
-        """
-        Print tracebacks and die.
-
-        If the *last* (and I do mean *last*) callback leaves me in an error
-        state, print a traceback (if said errback is a L{Failure}).
-        """
-        if self.failResult is not None:
-            # Note: this is two separate messages for compatibility with
-            # earlier tests; arguably it should be a single error message.
-            log.critical("Unhandled error in Deferred:",
-                         isError=True)
-
-            debugInfo = self._getDebugTracebacks()
-            if debugInfo:
-                format = "(debug: {debugInfo})"
-            else:
-                format = None
-
-            log.failure(format,
-                        self.failResult,
-                        debugInfo=debugInfo)
-
 
 
 @comparable
