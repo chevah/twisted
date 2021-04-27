@@ -56,8 +56,8 @@ class RandomFactory(object):
         """
         try:
             return os.urandom(nbytes)
-        except (AttributeError, NotImplementedError) as e:
-            raise SourceNotAvailable(e)
+        except (AttributeError, NotImplementedError, EnvironmentError) as e:
+            return self.insecureRandom(nbytes)
 
 
     def secureRandom(self, nbytes, fallback=False):
