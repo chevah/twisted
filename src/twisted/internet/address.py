@@ -39,6 +39,11 @@ class IPv4Address(object):
     port = attr.ib()
 
 
+class ReusableIPv4Address(IPv4Address):
+    """
+    An L{IPv4Address} that can be binded on an reusable port.
+    """
+
 
 @implementer(IAddress)
 @attr.s(hash=True)
