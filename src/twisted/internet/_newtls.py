@@ -179,6 +179,7 @@ class ConnectionMixin(object):
         """
         startTLS(self, ctx, normal, FileDescriptor)
 
+    # FIXME:https://trac.chevah.com/ticket/5631
     def stopTLS(self):
         """
         Reverts the changes done by C{startTLS}.

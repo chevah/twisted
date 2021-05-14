@@ -198,6 +198,8 @@ _EXTENSIONS = [
     ]
 
 # For Chevah we don't use any extensions.
+# This will be fixed once be upgrade to latest Twisted,
+# where there are no more extensions.
 _EXTENSIONS = []
 
 
@@ -284,7 +286,7 @@ def getSetupArgs(extensions=_EXTENSIONS, readme='README.rst'):
     ]
 
     arguments.update(dict(
-        version='20.3.0.chevah1',
+        version='20.3.0.chevah2',
         packages=find_packages("src"),
         install_requires=requirements,
         entry_points={

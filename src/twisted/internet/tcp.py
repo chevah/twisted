@@ -149,12 +149,7 @@ class _SocketCloser(object):
         # we set FD_CLOEXEC now, which will ensure this is the only process
         # holding the FD, thus ensuring close() really will shutdown the TCP
         # socket. However, do it anyways, just to be safe.
-
-        try:
-            skt = self.socket
-        except AttributeError:
-            return
-
+        skt = self.socket
         try:
             if orderly:
                 if self._shouldShutdown:
@@ -456,6 +451,7 @@ class _BaseBaseClient(object):
         else:
             d = defer.succeed(self.addr)
 
+        # Upstream:https://twistedmatrix.com/trac/ticket/9600
         d.addCallback(self._setRealAddress)
         d.addErrback(self.failIfNotConnected)
 
@@ -686,6 +682,9 @@ def _resolveIPv6(ip, port):
     @raise socket.gaierror: if either the IP or port is not numeric as it
         should be.
     """
+    # Upstream: https://twistedmatrix.com/trac/ticket/7798
+    # Latest code:
+    # https://github.com/twisted/twisted/compare/trunk...ipv6-client-port-overflow-7798-2
     usedPort = port
 
     if isinstance(port, int):
@@ -758,6 +757,8 @@ class _BaseTCPClient(object):
             whenDone = None
         if whenDone and bindAddress is not None:
 
+            # Upstream
+            # https://twistedmatrix.com/trac/ticket/8234
             if isinstance(bindAddress, address.ReusableIPv4Address):
                 bindAddress = (bindAddress.host, bindAddress.port)
                 skt.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

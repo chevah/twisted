@@ -38,7 +38,8 @@ class IPv4Address(object):
     host = attr.ib()
     port = attr.ib()
 
-
+# Upstream
+# https://twistedmatrix.com/trac/ticket/8234
 class ReusableIPv4Address(IPv4Address):
     """
     An L{IPv4Address} that can be binded on an reusable port.
