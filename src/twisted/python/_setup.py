@@ -286,7 +286,7 @@ def getSetupArgs(extensions=_EXTENSIONS, readme='README.rst'):
     ]
 
     arguments.update(dict(
-        version='20.3.0.chevah2',
+        version='20.3.0+chevah.3',
         packages=find_packages("src"),
         install_requires=requirements,
         entry_points={
