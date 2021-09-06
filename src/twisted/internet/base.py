@@ -110,12 +110,12 @@ class DelayedCall:
             except Exception:
                 pass
 
-            if self.debug:
+            try:
                 del self.args
             except Exception:
                 pass
 
-            if self.debug:
+            try:
                 del self.kw
             except Exception:
                 pass
