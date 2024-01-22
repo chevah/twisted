@@ -146,7 +146,23 @@ class DelayedCall:
             self.cancelled = 1
             if self.debug:
                 self._repr = repr(self)
-            del self.func, self.args, self.kw
+
+            # For Chevah functional tests we run this from a thread
+            # and this code is not thread safe.
+            try:
+                del self.func
+            except Exception:
+                pass
+
+            try:
+                del self.args
+            except Exception:
+                pass
+
+            try:
+                del self.kw
+            except Exception:
+                pass
 
     def reset(self, secondsFromNow: float) -> None:
         """
