@@ -441,7 +441,6 @@ class _BaseBaseClient:
         if self._requiresResolution:
             d = self.reactor.resolve(self.addr[0])
             d.addCallback(lambda n: (n,) + self.addr[1:])
-            d.addCallbacks(self._setRealAddress, self.failIfNotConnected)
         else:
             d = defer.succeed(self.addr)
 
