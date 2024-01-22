@@ -44,6 +44,14 @@ class IPv4Address:
     port: int
 
 
+# PATCH for chevah
+# see https://github.com/twisted/twisted/issues/8234
+class ReusableIPv4Address(IPv4Address):
+    """
+    An L{IPv4Address} that can be binded on an reusable port.
+    """
+
+
 @implementer(IAddress)
 @attr.s(hash=True, auto_attribs=True)
 class IPv6Address:
