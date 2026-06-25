@@ -1342,6 +1342,7 @@ class Port(base.BasePort, _SocketCloser):
     sessionno = 0
     interface = ""
     backlog = 50
+    factory = None
 
     _type = "TCP"
 
