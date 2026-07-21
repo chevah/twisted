@@ -605,7 +605,6 @@ class TCPClientTestsBase(ReactorBuilder, ConnectionTestsMixin, StreamClientTests
             while True:
                 port = findFreePort(self.interface, self.family)
                 bindAddress = (self.interface, port[1])
-                log.msg(f"Connect attempt with bindAddress {bindAddress}")
                 try:
                     reactor.connectTCP(
                         fakeDomain,
@@ -752,7 +751,6 @@ class TestBindAddressBuilder(TCPCreator, ReactorBuilder):
         clientFactory = Stop(reactor)
         bindAddress = createBinding(host, port)
 
-        log.msg(f"Connect attempt with bindAddress {bindAddress}")
         connector = reactor.connectTCP(
             fakeDomain,
             port,
@@ -774,7 +772,6 @@ class TestBindAddressBuilder(TCPCreator, ReactorBuilder):
         serverFactory = MyServerFactory()
         bindAddress = createBinding(host, port)
 
-        log.msg(f"Listen with bindAddress {bindAddress}")
         tcpport = reactor.listenTCP(
             bindAddress,
             serverFactory,
@@ -794,7 +791,6 @@ class TestBindAddressBuilder(TCPCreator, ReactorBuilder):
         serverFactory = MyServerFactory()
         bindAddress = makeBinding(host, port)
 
-        log.msg(f"Listen with bindAddress {bindAddress}")
         with self.assertRaises(ValueError):
             _ = reactor.listenTCP(
                 bindAddress,
