@@ -2858,7 +2858,7 @@ class HostnameEndpointBindAddressTypes(unittest.TestCase):
                 self.drr,
                 b"www.example.com",
                 80,
-                bindAddress=(b"localhost", 1234, "not a 2-tuple")
+                bindAddress=(b"localhost", 1234, "not a 2-tuple"),
             )
 
     def test_notHost(self):
@@ -2867,10 +2867,7 @@ class HostnameEndpointBindAddressTypes(unittest.TestCase):
         """
         with self.assertRaises(ValueError):
             endpoints.HostnameEndpoint(
-                self.drr,
-                b"www.example.com",
-                80,
-                bindAddress=(4321, 1234)
+                self.drr, b"www.example.com", 80, bindAddress=(4321, 1234)
             )
 
     def test_attemptDelay(self):
@@ -2879,7 +2876,9 @@ class HostnameEndpointBindAddressTypes(unittest.TestCase):
         """
 
         # we need two results for this test
-        self.drr = deterministicResolvingReactor(self.reactor, ["127.0.0.42", "127.0.0.43"])
+        self.drr = deterministicResolvingReactor(
+            self.reactor, ["127.0.0.42", "127.0.0.43"]
+        )
 
         fac = Factory.forProtocol(Protocol)
         self.reactor.listenTCP(80, fac)
@@ -2912,7 +2911,7 @@ class HostnameEndpointBindAddressTypes(unittest.TestCase):
 
         self.reactor.advance(7.0)
         # now the delay has passed, so we should be trying again
-        pump = comp.succeedOnce() # debug=True)
+        pump = comp.succeedOnce()
         assert len(Attempts.instances) == 1
 
 
